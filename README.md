@@ -89,7 +89,8 @@ radio and application integration. Both `AprsEvent` and `AprsPacket` are immutab
 event with that ID. On its first `tick()`, a controller loads pending reliable events
 to rebuild retry state. Do not rewrite pending reliable-message state behind a running
 controller. Repository calls are synchronous, so implementations may use an in-memory
-store, JDBC, Room, or another persistence layer.
+store, JDBC, Room, or another persistence layer. `inTransaction(...)` defaults to a direct
+call for simple stores; override it to atomically persist related event and packet changes.
 
 Callbacks describe operations the application performs: obtaining the local callsign,
 handling a newly created addressed message, transmitting ACKs/retries/digipeats, making

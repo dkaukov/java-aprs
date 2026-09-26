@@ -53,6 +53,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import org.junit.Test;
 
 public class AprsControllerTest {
@@ -67,6 +68,17 @@ public class AprsControllerTest {
         assertEquals(1_234_567L, event.getFirstSeenMs());
         assertEquals(1_234_567L, event.getLastSeenMs());
         assertEquals(1_234_567L, observation.getTimestampMs());
+    }
+
+    @Test public void relatedEventAndPacketWritesUseRepositoryTransaction() {
+        Fixture f = fixture();
+        APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
+
+        f.controller.handle(packet, AprsSource.RX_RF, 144_390_000L, packet.toAX25Frame());
+
+        assertEquals(1, f.repository.transactionCount);
+        assertEquals(1, f.events.records.size());
+        assertEquals(1, f.packets.records.size());
     }
 
     @Test public void rawFallbackPreservesHighWireBytes() {
@@ -861,7 +873,8 @@ public class AprsControllerTest {
         FakeEventRepository events = new FakeEventRepository();
         FakeRepository repository = new FakeRepository(packets, events);
         FakeCallbacks callbacks = new FakeCallbacks();
-        return new Fixture(packets, events, callbacks, new AprsController(repository, callbacks, clock));
+        return new Fixture(repository, packets, events, callbacks,
+            new AprsController(repository, callbacks, clock));
     }
 
     private APRSPacket directMessage(String from, String to, String body, String identifier) {
@@ -913,13 +926,15 @@ public class AprsControllerTest {
     }
 
     private static final class Fixture {
+        final FakeRepository repository;
         final FakePacketRepository packets;
         final FakeEventRepository events;
         final FakeCallbacks callbacks;
         final AprsController controller;
 
-        Fixture(FakePacketRepository packets, FakeEventRepository events,
+        Fixture(FakeRepository repository, FakePacketRepository packets, FakeEventRepository events,
                 FakeCallbacks callbacks, AprsController controller) {
+            this.repository = repository;
             this.packets = packets;
             this.events = events;
             this.callbacks = callbacks;
@@ -999,10 +1014,16 @@ public class AprsControllerTest {
     private static final class FakeRepository implements AprsRepository {
         private final FakePacketRepository packets;
         private final FakeEventRepository events;
+        int transactionCount;
 
         FakeRepository(FakePacketRepository packets, FakeEventRepository events) {
             this.packets = packets;
             this.events = events;
+        }
+
+        @Override public <T> T inTransaction(Supplier<T> operation) {
+            transactionCount++;
+            return operation.get();
         }
 
         @Override public long insert(AprsPacket packet) { return packets.insert(packet); }
