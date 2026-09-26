@@ -15,7 +15,7 @@ integration boundaries.
 
 ## Build, Test, and Development Commands
 
-Use Maven with a JDK supporting the Java 11 target.
+Use Maven with a JDK supporting the Java 8 target.
 
 - `mvn test`: run the JUnit suite.
 - `mvn -Dtest=AprsControllerTest test`: run one test class.
@@ -30,7 +30,7 @@ application server.
 
 ## Coding Style & Naming Conventions
 
-Keep code Java 11 compatible and UTF-8 encoded. Use four-space indentation in
+Keep code Java 8 compatible and UTF-8 encoded. Use four-space indentation in
 the main APRS package, `UpperCamelCase` class names, `lowerCamelCase` methods and
 fields, and `UPPER_SNAKE_CASE` constants. Preserve surrounding formatting in the
 legacy parser, which also uses tabs; avoid unrelated reformatting. Retain all

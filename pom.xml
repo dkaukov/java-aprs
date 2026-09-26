@@ -56,7 +56,7 @@
     <properties>
         <!-- Define the remote or target URL configuration for the site plugin. -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <project.build.targetJdk>11</project.build.targetJdk>
+        <project.build.targetJdk>8</project.build.targetJdk>
         <basepom.release.profiles>basepom.central-release</basepom.release.profiles>
         <basepom.release.push-changes>true</basepom.release.push-changes>
         <basepom.license.header>license-header.txt</basepom.license.header>

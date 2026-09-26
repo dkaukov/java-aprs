@@ -39,10 +39,12 @@ import org.jetbrains.annotations.NotNull;
 import java.io.ByteArrayOutputStream;
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -71,8 +73,8 @@ public final class APRSPacket implements Serializable {
     }
 
 
-    public static final Set<String> Q_CONSTRUCTS = Set.of(
-        "qac", "qax", "qau", "qao", "qas", "qar", "qaz", "qai");
+    public static final Set<String> Q_CONSTRUCTS = Collections.unmodifiableSet(new HashSet<>(
+        Arrays.asList("qac", "qax", "qau", "qao", "qas", "qar", "qaz", "qai")));
     private static final long serialVersionUID = 1L;
 
     private final Date receivedTimestamp;
@@ -119,7 +121,7 @@ public final class APRSPacket implements Serializable {
         receivedTimestamp = new Date(System.currentTimeMillis());
         this.sourceCall = source.toUpperCase(Locale.ROOT);
         this.destinationCall = destination.toUpperCase(Locale.ROOT);
-        this.digipeaters = Optional.ofNullable(digipeaters).orElse(List.of())
+        this.digipeaters = (digipeaters == null ? Collections.<Digipeater>emptyList() : digipeaters)
             .stream().map(Digipeater::copy).collect(Collectors.toCollection(ArrayList::new));
         this.dti = (char) payload[0];
         this.payload = dti == ':' ? new MessagePacket(payload, destinationCall)
@@ -173,7 +175,9 @@ public final class APRSPacket implements Serializable {
     }
 
     public List<Digipeater> getDigipeaters() {
-        return digipeaters.stream().map(Digipeater::copy).collect(Collectors.toUnmodifiableList());
+        List<Digipeater> copies = digipeaters.stream().map(Digipeater::copy)
+            .collect(Collectors.toList());
+        return Collections.unmodifiableList(copies);
     }
 
     public void addDigipeater(Digipeater digipeater) {

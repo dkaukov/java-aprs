@@ -4,6 +4,13 @@ These changes require updating and recompiling consumers of the snapshot library
 including the Android app. Update constructor calls, event persistence mappers,
 callback implementations, and beacon configuration before rebuilding.
 
+## Android and Java runtime compatibility
+
+The library now targets the Java 8 runtime and does not require Android core-library
+desugaring for Java 9+ collection factories. `APRSData` and parser snapshots use
+Java-8-compatible unmodifiable collection wrappers. Android consumers with minSdk
+26 can include the library without enabling core-library desugaring for it.
+
 ## Controller construction and threading
 
 Remove the executor argument from controller construction:

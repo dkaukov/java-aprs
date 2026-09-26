@@ -15,6 +15,7 @@ package io.github.dkaukov.aprs;
 import static org.junit.Assert.*;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.junit.Test;
 
@@ -65,7 +66,7 @@ public class RepositoryAccessTest {
         @Override public long insert(AprsEvent value) { event = value; return 1; }
         @Override public void update(AprsEvent value) { event = value; }
         @Override public List<AprsEvent> loadDueReliableEvents(long now) {
-            return new ArrayList<>(List.of(event));
+            return new ArrayList<>(Collections.singletonList(event));
         }
         @Override public Long loadNextReliableRetryAt() { return 10L; }
         @Override public AprsEvent findById(long id) { return event; }

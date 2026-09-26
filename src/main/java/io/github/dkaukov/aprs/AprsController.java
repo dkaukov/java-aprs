@@ -79,8 +79,7 @@ public final class AprsController {
         void update(AprsEvent event);
         AprsEvent findById(long id);
         AprsEvent findRecentByDedupKey(String dedupKey, long sinceMs);
-        AprsEvent findPendingOutgoingEvent(String localCallsign, String remoteCallsign,
-                                           String messageIdentifier);
+        AprsEvent findPendingOutgoingEvent(String localCallsign, String remoteCallsign, String messageIdentifier);
     }
 
     /** Immutable snapshot accepted by a radio callback, ready to record as transmitted. */
@@ -658,7 +657,7 @@ public final class AprsController {
     }
 
     private String digipeatOutputKey(APRSPacket packet) {
-        String path = packet.getDigipeaters() == null ? "" : packet.getDigipeaters().stream()
+        String path = packet.getDigipeaters().stream()
             .map(Digipeater::toString).collect(Collectors.joining(","));
         return packet.getSourceCall() + "|" + packet.getDestinationCall() + "|" + path + "|"
             + Base64.getEncoder().encodeToString(packet.getPayload().getRawBytes());
@@ -727,9 +726,6 @@ public final class AprsController {
 
     private boolean containsForbiddenGatePath(APRSPacket packet) {
         List<Digipeater> path = packet.getDigipeaters();
-        if (path == null) {
-            return false;
-        }
         for (Digipeater digipeater : path) {
             String callsign = digipeater.getCallsign().toUpperCase(Locale.ROOT);
             if ("TCPIP".equals(callsign) || "TCPXX".equals(callsign)

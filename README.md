@@ -27,6 +27,6 @@ validate them. Existing KV4P and vendored parser attribution must be retained.
 
 ## Release preparation
 
-Build with JDK 17 and Maven 3.9+; the library targets Java 11. See
+Build with JDK 17 and Maven 3.9+; the library targets the Java 8 runtime. See
 [RELEASING.md](RELEASING.md) for the `0.1.0` release procedure, signing, and
 Sonatype Central configuration, following the `esp32-flash` release setup.

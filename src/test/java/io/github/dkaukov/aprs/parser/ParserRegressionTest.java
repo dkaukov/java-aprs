@@ -33,6 +33,19 @@ public class ParserRegressionTest {
         assertFalse(Comparable.class.isAssignableFrom(APRSData.class));
     }
 
+    @Test public void parserCollectionSnapshotsUseJava8CompatibleImmutableWrappers() throws Exception {
+        assertThrows(UnsupportedOperationException.class,
+            () -> APRSPacket.Q_CONSTRUCTS.add("qxx"));
+        APRSPacket packet = new APRSPacket("VK3ABC", "APRS", null, new byte[] {'>', 'x'});
+        assertTrue(packet.getDigipeaters().isEmpty());
+        assertThrows(UnsupportedOperationException.class,
+            () -> packet.getDigipeaters().add(new Digipeater("WIDE1-1")));
+        InformationField field = new InformationField(new byte[] {'>'});
+        field.addAprsData(APRSTypes.T_STATUS, new StatusField(">status".getBytes(StandardCharsets.US_ASCII)));
+        assertThrows(UnsupportedOperationException.class,
+            () -> field.getTypes().clear());
+    }
+
     @Test public void nullPathMeansNoDigipeaters() throws Exception {
         APRSPacket packet = new APRSPacket("VK3ABC", "APRS", null, new byte[] {'>', 'x'});
         assertTrue(packet.getDigipeaters().isEmpty());

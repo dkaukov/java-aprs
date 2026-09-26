@@ -42,6 +42,7 @@ import io.github.dkaukov.aprs.parser.MessagePacket;
 import io.github.dkaukov.aprs.parser.Parser;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -650,7 +651,7 @@ public class AprsControllerTest {
         Digipeater prior = new Digipeater("VK3D1");
         prior.setUsed(true);
         APRSPacket relayed = new APRSPacket("VK3ABC", "APRS",
-            List.of(prior, new Digipeater("WIDE1-1")),
+            Arrays.asList(prior, new Digipeater("WIDE1-1")),
             ">test".getBytes(StandardCharsets.US_ASCII));
 
         f.controller.handle(direct, AprsSource.RX_RF, 144_390_000L, direct.toAX25Frame());
@@ -798,7 +799,7 @@ public class AprsControllerTest {
     @Test public void igateRejectsForbiddenPathsQueriesAndNonRfPackets() throws Exception {
         Fixture f = fixture();
         f.controller.setIgateEnabled(true);
-        for (String path : List.of("TCPIP", "TCPXX", "NOGATE", "RFONLY", "qAR")) {
+        for (String path : Arrays.asList("TCPIP", "TCPXX", "NOGATE", "RFONLY", "qAR")) {
             APRSPacket frame = packetWithPath(path);
             f.controller.handle(frame, AprsSource.RX_RF, 144_390_000L, frame.toAX25Frame());
         }

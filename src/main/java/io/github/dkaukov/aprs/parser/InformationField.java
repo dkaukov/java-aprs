@@ -34,7 +34,9 @@ package io.github.dkaukov.aprs.parser;
 
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -228,7 +230,7 @@ public class InformationField implements Serializable {
      * @return Set of APRSTypes
      */
     public Set<APRSTypes> getTypes() {
-        return Set.copyOf(dataFields.keySet());
+        return Collections.unmodifiableSet(new HashSet<>(dataFields.keySet()));
     }
 
 }
