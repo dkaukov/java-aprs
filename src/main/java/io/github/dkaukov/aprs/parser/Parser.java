@@ -42,13 +42,13 @@ import java.util.Locale;
 import java.nio.charset.StandardCharsets;
 
 /**
+ * Parses APRS TNC2 lines and AX.25 UI frames into {@link APRSPacket} values.
+ *
+ * <p>TNC2 syntax is {@code SOURCE>DEST,VIA,VIA:payload}. AX.25 input excludes HDLC flags, FCS,
+ * and KISS transport framing. When wire bytes are represented as a {@link String}, ISO-8859-1 is
+ * used so each byte is preserved.</p>
  *
  * @author johng
- *    This is the code parser for AX25 UI packets that are traditionally used in APRS networks, in TNC2
- * format.  TNC2 format is defined as:
- * SOURCE>DESTIN,VIA,VIA:payload
- * In APRS packets, the first character of the payload is the Data Type Identifier, which is the key for
- * further parsing of the message.  This class parses raw TNC2 packets and returns instances of APRSPackets
  */
 public class Parser {
 
@@ -82,8 +82,11 @@ public class Parser {
 
 
     /**
-     * @param rawPacket
-     * @return APRSPacket
+     * Convenience wrapper for {@link #parseAX25(byte[])} that converts checked parse failures.
+     *
+     * @param rawPacket AX.25 UI frame without flags, FCS, or KISS framing
+     * @return parsed APRS packet
+     * @throws IllegalArgumentException if the frame is invalid or cannot be parsed
      */
     public static APRSPacket parsePacket(byte[] rawPacket) {
         try {
@@ -95,9 +98,11 @@ public class Parser {
 
 
     /**
-     * @param packet
-     * @return APRSPacket
-     * @throws Exception
+     * Parses one TNC2 packet line.
+     *
+     * @param packet TNC2 text in {@code SOURCE>DEST[,PATH]:payload} form
+     * @return parsed APRS packet retaining the original input text
+     * @throws Exception if the TNC2 structure or APRS payload cannot be parsed
      */
     public static APRSPacket parse(final String packet) throws Exception {
         int cs = packet.indexOf('>');
@@ -115,27 +120,31 @@ public class Parser {
 
 
     /**
-     * @param packet
-     * @return APRSPacket
-     * @throws Exception
+     * Parses a complete AX.25 UI frame.
+     *
+     * @param packet AX.25 UI bytes without flags, FCS, or KISS framing
+     * @return parsed APRS packet
+     * @throws IllegalArgumentException if the frame is null, malformed, or truncated
+     * @throws Exception if the APRS payload cannot be parsed
      */
-        public static APRSPacket parseAX25(byte[] packet) throws Exception {
+    public static APRSPacket parseAX25(byte[] packet) throws Exception {
             if (packet == null) {
                 throw new IllegalArgumentException("AX.25 packet must not be null");
             }
             return parseAX25(packet, 0, packet.length);
         }
 
-        /**
-         * Parses only the specified AX.25 UI frame slice (without flags or FCS).
-         * @param packet backing buffer
-         * @param offset first frame byte
-         * @param len number of frame bytes
-         * @return parsed APRS packet
-         * @throws IllegalArgumentException if the slice or AX.25 header is invalid or truncated
-         * @throws Exception if the APRS payload cannot be parsed
-         */
-        public static APRSPacket parseAX25(byte[] packet, int offset, int len) throws Exception {
+    /**
+     * Parses an AX.25 UI frame contained in a slice of a backing buffer.
+     *
+     * @param packet backing buffer containing an AX.25 UI frame without flags, FCS, or KISS framing
+     * @param offset first frame byte
+     * @param len number of frame bytes
+     * @return parsed APRS packet
+     * @throws IllegalArgumentException if the slice or AX.25 header is invalid or truncated
+     * @throws Exception if the APRS payload cannot be parsed
+     */
+    public static APRSPacket parseAX25(byte[] packet, int offset, int len) throws Exception {
             // Subtraction avoids overflow when callers supply very large offsets/lengths.
             if (packet == null || offset < 0 || offset > packet.length
                 || len < 16 || len > packet.length - offset) {
@@ -166,23 +175,24 @@ public class Parser {
             return parseBody(source, dest, digis, body);
         }
 
-        private static void requireFrameBytes(int pos, int count, int frameEnd, String field) {
+    private static void requireFrameBytes(int pos, int count, int frameEnd, String field) {
             if (count > frameEnd - pos) {
                 throw new IllegalArgumentException("Truncated AX.25 " + field);
             }
         }
 
     /**
+     * Parses an APRS information field after link-layer addresses have already been decoded.
      *
-     * @param source Source callsign
-     * @param dest Destination callsing, may be part of a compressed postion
-     * @param digis array of digipeaters this packet has passed through
-     * @param body msg body of the on air message
-     * @return
-     * @throws Exception
+     * <p>This lower-level entry point expects {@code body} to begin with the APRS data type
+     * identifier. ISO-8859-1 conversion preserves its wire bytes.</p>
      *
-     * This is the core packet parser.  It parses the entire "body" of the APRS Packet,
-     * starting with the Data Type Indicator in position 0.
+     * @param source source callsign
+     * @param dest destination callsign; it can affect compressed-position decoding
+     * @param digis digipeater path
+     * @param body APRS information field beginning with its data type identifier
+     * @return parsed APRS packet
+     * @throws Exception if a typed APRS field cannot be parsed
      */
 
     public static APRSPacket parseBody(String source, String dest, ArrayList<Digipeater> digis, String body) throws Exception {

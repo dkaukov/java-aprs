@@ -40,19 +40,19 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * Owns APRS parsing, event aggregation, packet history, retries, beacon cadence, and digipeating.
+ * Coordinates APRS parsing, event aggregation, packet history, retries, beacon cadence,
+ * digipeating, and RF-to-APRS-IS gating.
  *
  * <p>{@link AprsPacket} records immutable transport facts. {@link AprsEvent}
  * records one user-visible occurrence and may aggregate multiple received copies, retries, and a
  * delivery response. The normal UI observes events; packet history remains available for future
  * diagnostics and iGate work.</p>
  *
- * <p>Threading: operations are synchronous and serialized on this controller's monitor,
- * including repository calls and callbacks. Callers may use any executor; this class
- * creates no threads. Callbacks must not wait for another thread to call this controller
- * or re-enter state-changing operations while an operation is in progress. Defer such
- * work until the callback returns. Serialization is per instance, not across controllers
- * or external writers sharing a repository.</p>
+ * <p>All state-changing operations are synchronous and serialized on this instance. Repository
+ * calls and {@link Callbacks callbacks} run on the calling thread while that serialization is
+ * held. This class creates no threads. A callback must not wait for another thread to enter this
+ * controller. Applications that need background work should call it from their own ordered
+ * executor. Serialization is per controller, not across external repository writers.</p>
  */
 public final class AprsController {
     private static final long[] RETRY_DELAYS_MS = {15_000L, 30_000L, 60_000L, 120_000L, 240_000L};
@@ -61,40 +61,103 @@ public final class AprsController {
     private static final long NUMBERED_MESSAGE_DUPLICATE_WINDOW_MS = 30 * 60_000L;
     private static final long DIGIPEAT_DEDUP_MS = 28_000L;
 
-    /** Immutable snapshot accepted by a radio callback, ready to record as transmitted. */
+    /**
+     * Immutable result reported by a radio callback after an actual RF transmission.
+     *
+     * <p>The constructor copies both mutable inputs. A non-null instance means the caller may
+     * record a physical TX packet; callbacks return {@code null} when no transmission occurred.</p>
+     */
     public static final class Transmission {
         private final APRSPacket packet;
+        /** RF frequency in Hz, or {@code null} when it was not available. */
         public final Long frequencyHz;
         private final byte[] rawAx25;
 
+        /**
+         * Creates a transmission result from snapshots of a parsed packet and its encoded frame.
+         *
+         * @param packet transmitted parser packet; must not be {@code null}
+         * @param frequencyHz RF frequency in Hz, or {@code null}
+         * @param rawAx25 transmitted AX.25 UI frame without FCS, flags, or KISS framing
+         * @throws NullPointerException if {@code packet} is {@code null}
+         */
         public Transmission(APRSPacket packet, Long frequencyHz, byte[] rawAx25) {
             this.packet = Objects.requireNonNull(packet, "packet").copy();
             this.frequencyHz = frequencyHz;
             this.rawAx25 = rawAx25 == null ? null : Arrays.copyOf(rawAx25, rawAx25.length);
         }
 
-        /** Returns an independent packet snapshot. */
+        /**
+         * Returns an independent parser-packet snapshot.
+         *
+         * @return a deep copy that callers may modify
+         */
         public APRSPacket getPacket() {
             return packet.copy();
         }
 
-        /** Returns an independent wire-frame snapshot, or null if none was supplied. */
+        /**
+         * Returns an independent encoded-frame snapshot.
+         *
+         * @return AX.25 UI bytes without FCS, flags, or KISS framing; {@code null} if unavailable
+         */
         public byte[] getRawAx25() {
             return rawAx25 == null ? null : Arrays.copyOf(rawAx25, rawAx25.length);
         }
     }
 
-    /** Application and transport capabilities supplied by the consumer. */
+    /**
+     * Synchronous application and radio boundary used by {@link AprsController}.
+     *
+     * <p>Methods execute while the controller is serialized. Implementations should return
+     * promptly and must not wait for another thread to call the same controller.</p>
+     */
     public interface Callbacks {
+        /**
+         * Returns the current local station callsign.
+         *
+         * @return local callsign, or {@code null} when no station identity is active
+         */
         String getCallsign();
-        /** Receives an immutable snapshot of a new message addressed to the local callsign. */
+        /**
+         * Handles a newly created message addressed to {@link #getCallsign()}.
+         *
+         * <p>This is not invoked for duplicate packet copies collapsed into an existing event.</p>
+         *
+         * @param event immutable message event
+         */
         void onIncomingMessage(AprsEvent event);
+        /**
+         * Sends the RF ACK for a received numbered message.
+         *
+         * @param destination message origin callsign
+         * @param messageIdentifier APRS message number being acknowledged
+         * @param eventId persistent identifier of the received message event
+         */
         void sendAcknowledgement(String destination, String messageIdentifier, long eventId);
-        /** Receives an immutable event; return a snapshot of the actual transmission. */
+        /**
+         * Attempts an RF retransmission for a pending reliable message.
+         *
+         * @param event immutable pending message event
+         * @return actual transmission snapshot, or {@code null} when nothing was transmitted
+         */
         Transmission retryMessage(AprsEvent event);
+        /** Requests that the application build and transmit a position beacon. */
         void requestPositionBeacon();
-        /** Receives a detached packet that may be retained or modified by the consumer. */
+        /**
+         * Attempts an RF retransmission of a packet selected for digipeating.
+         *
+         * @param packet detached parser-packet snapshot that may be retained or modified
+         * @return actual transmission snapshot, or {@code null} when nothing was transmitted
+         */
         Transmission transmitDigipeatedPacket(APRSPacket packet);
+        /**
+         * Forwards an RF packet accepted by the controller's iGate policy to APRS-IS.
+         *
+         * @param tnc2 packet line without a terminator
+         * @param eventId associated event ID, or {@code null} when no logical event was created
+         * @return application-defined delivery indication; the controller currently ignores it
+         */
         boolean gateToAprsIs(String tnc2, Long eventId);
     }
 
@@ -111,32 +174,72 @@ public final class AprsController {
     private volatile boolean igateEnabled;
     private boolean pendingReliableEventsLoaded;
 
+    /**
+     * Enables or disables the controller's fill-in digipeating policy.
+     *
+     * @param enabled {@code true} to consider eligible RF frames for retransmission
+     */
     public synchronized void setDigipeatingEnabled(boolean enabled) {
         digipeatingEnabled = enabled;
     }
 
-    /** Enables standards-filtered, one-way forwarding from RF to APRS-IS. */
+    /**
+     * Enables or disables standards-filtered, one-way forwarding from RF to APRS-IS.
+     *
+     * @param enabled {@code true} to invoke {@link Callbacks#gateToAprsIs(String, Long)} for
+     *                eligible RF packets
+     */
     public synchronized void setIgateEnabled(boolean enabled) {
         igateEnabled = enabled;
     }
 
-    /** Creates a controller backed by the application's repository implementation and callbacks. */
+    /**
+     * Creates a controller backed by application-supplied persistence and transport callbacks.
+     *
+     * @param repository synchronous storage boundary for immutable events and packets
+     * @param callbacks synchronous application/radio boundary
+     * @throws NullPointerException if either argument is {@code null}
+     */
     public AprsController(AprsRepository repository, Callbacks callbacks) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.callbacks = Objects.requireNonNull(callbacks, "callbacks");
     }
 
-    /** Processes one decoded packet and associates it with a user event when possible. */
+    /**
+     * Processes one decoded packet with unknown transport provenance.
+     *
+     * @param packet parsed APRS packet; copied before processing
+     * @throws NullPointerException if {@code packet} is {@code null}
+     */
     public synchronized void handle(APRSPacket packet) {
         handle(packet, AprsSource.UNKNOWN, null, null);
     }
 
-    /** Processes one decoded packet together with its transport metadata. */
+    /**
+     * Processes one decoded packet with physical transport metadata.
+     *
+     * <p>The controller records physical history, creates or aggregates a logical event, and may
+     * synchronously invoke callbacks for ACKs, digipeating, or iGate forwarding. Use an
+     * {@link AprsSource} value for {@code source}; RF frequency is in Hz.</p>
+     *
+     * @param packet parsed APRS packet; copied before processing
+     * @param source transport source, normally an {@link AprsSource} value
+     * @param frequencyHz RF frequency in Hz, or {@code null} for non-RF/unknown sources
+     * @param rawAx25 AX.25 UI bytes without FCS, flags, or KISS framing; copied if non-null
+     * @throws NullPointerException if {@code packet} is {@code null}
+     */
     public synchronized void handle(APRSPacket packet, String source, Long frequencyHz, byte[] rawAx25) {
         handleDecoded(packet, source, frequencyHz, rawAx25, null);
     }
 
-    /** Parses and displays one APRS-IS line without making it eligible for RF transmission. */
+    /**
+     * Parses and processes one APRS-IS TNC2 line without making it eligible for RF transmission.
+     *
+     * <p>Blank and malformed lines are ignored. Valid lines become RX_APRS_IS packet history and
+     * may create or aggregate an event, but are never automatically gated or digipeated.</p>
+     *
+     * @param tnc2 APRS-IS packet line without a line terminator; may be {@code null}
+     */
     public synchronized void handleAprsIsPacket(String tnc2) {
         if (tnc2 == null || tnc2.trim().isEmpty()) {
             return;
@@ -254,13 +357,33 @@ public final class AprsController {
         }
     }
 
-    /** Records a transmitted packet under an existing event, or as unassociated transport data. */
+    /**
+     * Records a packet that the application has already transmitted on RF.
+     *
+     * <p>This method does not transmit RF. When {@code eventId} identifies an existing event, the
+     * packet is associated with it and its count is updated; otherwise it is stored as unassociated
+     * physical history.</p>
+     *
+     * @param eventId event identifier, or {@code null} when no event is associated
+     * @param packet transmitted parser packet
+     * @param frequencyHz RF frequency in Hz, or {@code null}
+     * @param rawAx25 transmitted AX.25 UI frame without FCS, flags, or KISS framing
+     * @throws NullPointerException if {@code packet} is {@code null}
+     */
     public synchronized void recordTransmission(Long eventId, APRSPacket packet, Long frequencyHz, byte[] rawAx25) {
         Transmission transmission = new Transmission(packet, frequencyHz, rawAx25);
         recordTransmissionNow(eventId, transmission);
     }
 
-    /** Records a packet after it is written to a verified APRS-IS session. */
+    /**
+     * Records a TNC2 packet after the application has written it to a verified APRS-IS session.
+     *
+     * <p>This method records history only; it neither opens a connection nor transmits the line.
+     * Malformed input is ignored.</p>
+     *
+     * @param eventId associated event identifier, or {@code null} for unassociated history
+     * @param tnc2 transmitted TNC2 line without a line terminator
+     */
     public synchronized void recordAprsIsTransmission(Long eventId, String tnc2) {
         try {
             APRSPacket frame = Parser.parse(tnc2);
@@ -299,7 +422,15 @@ public final class AprsController {
         }
     }
 
-    /** Runs due reliable-message retries and periodic beacon scheduling. */
+    /**
+     * Runs due reliable-message retries and optional position-beacon scheduling.
+     *
+     * <p>The first invocation loads pending reliable events from the repository. Subsequent calls
+     * use controller-maintained retry state. This class creates no scheduler thread; applications
+     * must invoke this method periodically.</p>
+     *
+     * @param now current wall-clock time in milliseconds since the Unix epoch
+     */
     public synchronized void tick(long now) {
         loadPendingReliableEvents();
         for (AprsEvent event : new ArrayList<>(pendingReliableEvents.values())) {
@@ -317,8 +448,9 @@ public final class AprsController {
      * Configures beacon scheduling; enabling makes the next tick request a beacon immediately.
      * Disabling ignores the interval. Consumers scheduling externally can leave this disabled.
      * @param enabled whether controller ticks should request beacons
-     * @param now current scheduler time in milliseconds
+     * @param now current wall-clock time in milliseconds since the Unix epoch
      * @param intervalMs positive interval between requests when enabled
+     * @throws IllegalArgumentException if enabling with a non-positive interval
      */
     public synchronized void setPositionBeaconingEnabled(boolean enabled, long now, long intervalMs) {
         if (enabled && intervalMs <= 0) {
@@ -353,7 +485,21 @@ public final class AprsController {
         updatePendingReliableEvent(event);
     }
 
-    /** Records a new outgoing chat event and its first transmitted packet. */
+    /**
+     * Records a newly transmitted outgoing message and its first RF packet.
+     *
+     * <p>This method does not transmit RF. Numbered destinations that require acknowledgement are
+     * entered into the reliable-message retry state; bulletin, ALL, QST, and CQ destinations are
+     * recorded without retries.</p>
+     *
+     * @param from local source callsign
+     * @param to destination callsign
+     * @param text transmitted message body
+     * @param messageIdentifier APRS message number, required for reliable destinations
+     * @param frequencyHz RF frequency in Hz, or {@code null}
+     * @param packet transmitted parser packet
+     * @param rawAx25 transmitted AX.25 UI frame without FCS, flags, or KISS framing
+     */
     public synchronized void recordOutgoingMessage(String from, String to, String text, String messageIdentifier,
                                       Long frequencyHz, APRSPacket packet, byte[] rawAx25) {
         long now = System.currentTimeMillis();
@@ -374,6 +520,12 @@ public final class AprsController {
         persistOutgoingEvent(event.build(), packet, frequencyHz, rawAx25);
     }
 
+    /**
+     * Determines whether a destination is eligible for APRS reliable-message acknowledgement.
+     *
+     * @param destination destination callsign or bulletin/query address
+     * @return {@code false} for {@code null}, BLN*, ALL, QST, and CQ; {@code true} otherwise
+     */
     public static boolean requiresAcknowledgement(String destination) {
         if (destination == null) {
             return false;
@@ -383,7 +535,18 @@ public final class AprsController {
             && !normalized.equals("QST") && !normalized.equals("CQ");
     }
 
-    /** Records a new outgoing position event and its transmitted packet. */
+    /**
+     * Records a newly transmitted outgoing position beacon and its first RF packet.
+     *
+     * <p>This method records a transmission; it does not request or perform one.</p>
+     *
+     * @param callsign local source callsign
+     * @param latitude latitude in decimal degrees
+     * @param longitude longitude in decimal degrees
+     * @param frequencyHz RF frequency in Hz, or {@code null}
+     * @param packet transmitted parser packet
+     * @param rawAx25 transmitted AX.25 UI frame without FCS, flags, or KISS framing
+     */
     public synchronized void recordPositionBeacon(String callsign, double latitude, double longitude, Long frequencyHz, APRSPacket packet, byte[] rawAx25) {
         long now = System.currentTimeMillis();
         AprsEvent.AprsEventBuilder event = AprsEvent.builder();

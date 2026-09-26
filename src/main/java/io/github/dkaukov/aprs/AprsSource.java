@@ -12,12 +12,17 @@
 
 package io.github.dkaukov.aprs;
 
-/** Transport direction/source values stored with physical APRS packet records. */
+/** Transport direction/source values stored with physical {@link AprsPacket} records. */
 public final class AprsSource {
+    /** Transport direction is unavailable. */
     public static final String UNKNOWN = "UNKNOWN";
+    /** Packet was received from RF. */
     public static final String RX_RF = "RX_RF";
+    /** Packet was transmitted on RF. */
     public static final String TX_RF = "TX_RF";
+    /** Packet was received from APRS-IS. */
     public static final String RX_APRS_IS = "RX_APRS_IS";
+    /** Packet was transmitted to APRS-IS. */
     public static final String TX_APRS_IS = "TX_APRS_IS";
 
     private AprsSource() {

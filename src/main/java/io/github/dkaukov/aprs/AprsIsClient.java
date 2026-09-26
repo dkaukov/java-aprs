@@ -31,9 +31,17 @@ import java.util.regex.Pattern;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-/** Persistent APRS-IS transport for packets accepted by the controller's iGate policy. */
+/**
+ * Persistent APRS-IS client for receiving filtered TNC2 lines and injecting outbound lines.
+ *
+ * <p>The client starts one connection worker at construction. Configure identity, receive/transmit
+ * mode, and {@link #setEnabled(boolean) enabled state}; connection-affecting changes reconnect the
+ * session. Close the client to stop its worker and discard queued packets. Software name and
+ * version are normalized to single APRS-IS login tokens.</p>
+ */
 public final class AprsIsClient implements AutoCloseable {
     private static final Logger LOG = Logger.getLogger(AprsIsClient.class.getName());
+    /** Default APRS-IS rotation service and plaintext port. */
     public static final String DEFAULT_SERVER = "rotate.aprs2.net:14580";
     private static final int DEFAULT_PORT = 14580;
     private static final int MAX_PACKET_BYTES = 510;
@@ -45,7 +53,7 @@ public final class AprsIsClient implements AutoCloseable {
     private static final long MAX_RECONNECT_DELAY_MS = 60_000;
     /** Default APRS-IS nearby-feed radius, in kilometres. */
     public static final double DEFAULT_NEARBY_FILTER_RADIUS_KM = 50.0;
-    /** Default distance a location must move before the nearby filter is refreshed. */
+    /** Default distance in kilometres a location must move before the nearby filter is refreshed. */
     public static final double DEFAULT_FILTER_MOVEMENT_THRESHOLD_KM = 5.0;
     private static final Pattern AX25_CALLSIGN = Pattern.compile(
         "^[A-Z0-9]{3,6}(?:-[A-Z0-9]{1,2})?$");
@@ -71,10 +79,23 @@ public final class AprsIsClient implements AutoCloseable {
     private long pendingPacketGeneration;
     private Socket activeSocket;
 
+    /**
+     * Creates a client with no incoming-packet consumer.
+     *
+     * @param software application name included in the APRS-IS login
+     * @param softwareVersion application version included in the APRS-IS login
+     */
     public AprsIsClient(String software, String softwareVersion) {
         this(software, softwareVersion, packet -> { });
     }
 
+    /**
+     * Creates a client and starts its connection worker.
+     *
+     * @param software application name included in the APRS-IS login; whitespace is normalized
+     * @param softwareVersion version included in the APRS-IS login; whitespace is normalized
+     * @param incomingPacketListener receives valid non-comment TNC2 lines when receive is enabled
+     */
     public AprsIsClient(String software, String softwareVersion, IncomingPacketListener incomingPacketListener) {
         this.software = singleWord(software);
         this.softwareVersion = singleWord(softwareVersion);
@@ -87,12 +108,23 @@ public final class AprsIsClient implements AutoCloseable {
         worker.execute(this::runConnectionLoop);
     }
 
-    /** Receives non-comment APRS-IS packets from the configured filtered feed. */
+    /** Receives valid non-comment TNC2 lines from the configured APRS-IS filtered feed. */
     public interface IncomingPacketListener {
+        /**
+         * Handles one received TNC2 line on the APRS-IS connection worker.
+         *
+         * @param packet TNC2 line without a line terminator
+         */
         void onPacket(String packet);
     }
 
-    /** Enables or disables the persistent connection. Disabling also discards queued packets. */
+    /**
+     * Enables or disables the persistent connection.
+     *
+     * <p>Disabling disconnects an active session and discards queued outbound packets.</p>
+     *
+     * @param enabled whether the client may connect
+     */
     public void setEnabled(boolean enabled) {
         synchronized (lock) {
             if (this.enabled == enabled) {
@@ -108,7 +140,11 @@ public final class AprsIsClient implements AutoCloseable {
         }
     }
 
-    /** Selects the APRSdroid-compatible nearby feed and whether received packets are exposed. */
+    /**
+     * Enables or disables the nearby receive feed and incoming listener delivery.
+     *
+     * @param enabled whether login should include a nearby APRS-IS filter
+     */
     public void setReceiveEnabled(boolean enabled) {
         synchronized (lock) {
             if (receiveEnabled == enabled) {
@@ -121,7 +157,14 @@ public final class AprsIsClient implements AutoCloseable {
         }
     }
 
-    /** Selects whether this session must authenticate for APRS-IS packet injection. */
+    /**
+     * Enables or disables APRS-IS packet injection.
+     *
+     * <p>Enabling requires verified APRS-IS authentication. Disabling discards queued outbound
+     * packets and reconnects an active session.</p>
+     *
+     * @param enabled whether this client may send queued TNC2 packets
+     */
     public void setTransmitEnabled(boolean enabled) {
         synchronized (lock) {
             if (transmitEnabled == enabled) {
@@ -143,6 +186,7 @@ public final class AprsIsClient implements AutoCloseable {
      * <p>Changing the radius reconnects an active receive session so its login filter is updated.</p>
      *
      * @param radiusKm positive, finite nearby-feed radius in kilometres
+     * @throws IllegalArgumentException if {@code radiusKm} is not positive and finite
      */
     public void setNearbyFilterRadiusKm(double radiusKm) {
         requirePositiveFinite(radiusKm, "Nearby filter radius");
@@ -162,6 +206,7 @@ public final class AprsIsClient implements AutoCloseable {
      * reconnect with a new nearby-filter center.
      *
      * @param thresholdKm positive, finite distance in kilometres
+     * @throws IllegalArgumentException if {@code thresholdKm} is not positive and finite
      */
     public void setFilterMovementThresholdKm(double thresholdKm) {
         requirePositiveFinite(thresholdKm, "Filter movement threshold");
@@ -170,7 +215,15 @@ public final class AprsIsClient implements AutoCloseable {
         }
     }
 
-    /** Updates the explicit receive-filter center after movement beyond the configured threshold. */
+    /**
+     * Updates the nearby receive-filter center after movement beyond the configured threshold.
+     *
+     * <p>Invalid or incomplete coordinates clear the explicit center, causing a subsequent receive
+     * login to use the APRS-IS {@code m/radius} filter. A changed center reconnects the session.</p>
+     *
+     * @param latitude latitude in decimal degrees, or {@code null}
+     * @param longitude longitude in decimal degrees, or {@code null}
+     */
     public void setFilterLocation(Double latitude, Double longitude) {
         boolean valid = isValidLocation(latitude, longitude);
         Double nextLatitude = valid ? latitude : null;
@@ -187,7 +240,12 @@ public final class AprsIsClient implements AutoCloseable {
         }
     }
 
-    /** Changes the APRS-IS host and optional port, reconnecting if necessary. */
+    /**
+     * Changes the APRS-IS host and optional port, reconnecting when necessary.
+     *
+     * @param value host, {@code host:port}, or bracketed IPv6 address; blank selects the default
+     * @return {@code true} when the value is valid and selected; {@code false} otherwise
+     */
     public boolean setServer(String value) {
         ServerAddress parsed = parseServer(value);
         if (parsed == null) {
@@ -205,7 +263,13 @@ public final class AprsIsClient implements AutoCloseable {
         return true;
     }
 
-    /** Updates the callsign used for APRS-IS authentication. */
+    /**
+     * Updates the callsign used for APRS-IS authentication.
+     *
+     * <p>Changing callsign discards queued packets and reconnects an active session.</p>
+     *
+     * @param value callsign to normalize for APRS-IS login
+     */
     public void setCallsign(String value) {
         String normalized = normalizeCallsign(value);
         synchronized (lock) {
@@ -220,7 +284,20 @@ public final class AprsIsClient implements AutoCloseable {
         }
     }
 
-    /** Queues one packet without blocking the radio/controller thread. */
+    /**
+     * Queues one TNC2 packet for APRS-IS injection without blocking the caller.
+     *
+     * <p>The first argument is the callsign used for authentication. The queue is intentionally
+     * bounded. This method returns {@code false} for invalid callsign/packet input, disabled or
+     * closed transmit mode, or a full queue. Changing the callsign clears older queued work.
+     * {@code onSuccess}, if supplied, runs on the connection worker only after a successful socket
+     * write and removal from the queue.</p>
+     *
+     * @param value callsign to authenticate as
+     * @param packet TNC2 packet line without a line terminator
+     * @param onSuccess optional callback after successful delivery to the socket
+     * @return whether the packet was accepted into the outbound queue
+     */
     public boolean send(String value, String packet, Runnable onSuccess) {
         String normalized = normalizeCallsign(value);
         if (!isValidPacket(packet) || !AX25_CALLSIGN.matcher(normalized).matches()) {
@@ -244,7 +321,12 @@ public final class AprsIsClient implements AutoCloseable {
         }
     }
 
-    /** Returns a normalized {@code host:port}, or {@code null} when the value is invalid. */
+    /**
+     * Normalizes an APRS-IS server address.
+     *
+     * @param value host, {@code host:port}, or bracketed IPv6 address; blank selects the default
+     * @return normalized {@code host:port}, or {@code null} when invalid
+     */
     public static String normalizeServer(String value) {
         ServerAddress parsed = parseServer(value);
         return parsed == null ? null : parsed.normalized;
@@ -667,6 +749,11 @@ public final class AprsIsClient implements AutoCloseable {
         }
     }
 
+    /**
+     * Stops the connection worker, closes any active socket, and discards queued packets.
+     *
+     * <p>This method is safe to call through try-with-resources.</p>
+     */
     @Override public void close() {
         synchronized (lock) {
             closed = true;
