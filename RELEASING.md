@@ -7,7 +7,7 @@ preparation. CI verifies changes but does not deploy artifacts.
 
 ## Prerequisites
 
-- Use JDK 17 and Maven 3.9 or newer. Artifacts target Java 11.
+- Use JDK 17 and Maven 3.9 or newer. Artifacts target the Java 8 runtime.
 - Have SSH push access to `git@github.com:dkaukov/java-aprs.git`.
 - Have a verified `io.github.dkaukov` namespace in Sonatype Central Portal.
 - Configure a Central user token in your local Maven settings under server ID
