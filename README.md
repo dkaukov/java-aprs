@@ -21,6 +21,9 @@ deep snapshots and persistence exchanges copied records. See
 payload conversions use ISO-8859-1 to preserve wire bytes; AX.25 callsigns and
 numeric protocol fields use ASCII.
 
+Run `mvn license:format` to insert missing headers and `mvn license:check` to
+validate them. Existing KV4P and vendored parser attribution must be retained.
+
 ## Release preparation
 
 Build with JDK 17 and Maven 3.9+; the library targets Java 11. See

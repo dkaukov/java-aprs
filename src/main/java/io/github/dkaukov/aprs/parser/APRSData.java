@@ -1,4 +1,3 @@
-package io.github.dkaukov.aprs.parser;
 /*
  * AVRS - http://avrs.sourceforge.net/
  *
@@ -19,6 +18,8 @@ package io.github.dkaukov.aprs.parser;
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
  * USA
 */
+
+package io.github.dkaukov.aprs.parser;
 
 public abstract class APRSData implements java.io.Serializable, java.lang.Comparable<APRSData> {
     private static final long serialVersionUID = 1L;

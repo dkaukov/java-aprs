@@ -22,6 +22,8 @@ Use Maven with a JDK supporting the Java 11 target.
 - `mvn clean verify`: build the JAR, run tests, and execute configured checks.
 - `mvn clean install`: install `io.github.dkaukov:java-aprs:0.1.0-SNAPSHOT`
   into Maven Local before building the Android app.
+- `mvn license:format`: insert missing license headers while retaining recognized
+  upstream attribution; review the diff before committing.
 
 This project is a library; local development primarily uses tests rather than an
 application server.
@@ -34,8 +36,8 @@ fields, and `UPPER_SNAKE_CASE` constants. Preserve surrounding formatting in the
 legacy parser, which also uses tabs; avoid unrelated reformatting. Retain all
 existing license and attribution headers.
 
-The build inherits Basepom OSS checks. Checkstyle is explicitly skipped, and
-license findings are nonfatal. SpotBugs findings fail verification, with no
+The build inherits Basepom OSS checks. Checkstyle is explicitly skipped.
+License and SpotBugs findings fail verification, with no SpotBugs
 exclusion filters. Preserve snapshot ownership when changing parser APIs; see
 `MIGRATING.md` for consumer integration requirements.
 

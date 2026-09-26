@@ -1,20 +1,20 @@
 /*
-kv4p HT (see http://kv4p.com)
-Copyright (C) 2024 Vance Vagell
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+ * kv4p HT (see http://kv4p.com)
+ * Copyright (C) 2024 Vance Vagell
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package io.github.dkaukov.aprs;
 
@@ -152,6 +152,10 @@ public class AprsIsClientTest {
                 received.add(reader.readLine());
                 packetsReceived.countDown();
             }
+            // Keep the server side open until the client closes the session.
+            while (reader.readLine() != null) {
+                // Drain any final client traffic during shutdown.
+            }
         } catch (Exception ignored) {
             // The assertions time out with the captured context if the test server fails.
         }
@@ -171,6 +175,10 @@ public class AprsIsClientTest {
             writer.write("# keepalive\r\n");
             writer.write("VK3RF>APRS,qAO,VK3ABC:>nearby\r\n");
             writer.flush();
+            // The test owns client shutdown; avoid simulating an unexpected disconnect.
+            while (reader.readLine() != null) {
+                // Drain any final client traffic during shutdown.
+            }
         } catch (Exception ignored) {
             // The assertion times out with the captured context if the test server fails.
         }

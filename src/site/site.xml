@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+~   This file is licensed under the GNU General Public License v3.0.
+~
+~   You may obtain a copy of the License at
+~   https://www.gnu.org/licenses/gpl-3.0.html
+~
+~   This program is distributed in the hope that it will be useful,
+~   but WITHOUT ANY WARRANTY; without even the implied warranty of
+~   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+~   See the GNU General Public License for more details.
+-->
+<site xmlns="http://maven.apache.org/SITE/2.0.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://maven.apache.org/SITE/2.0.0 https://maven.apache.org/xsd/site-2.0.0.xsd"
+      name="java-aprs">
+    <skin>
+        <groupId>org.apache.maven.skins</groupId>
+        <artifactId>maven-fluido-skin</artifactId>
+        <version>2.0.0-M9</version>
+    </skin>
+    <body>
+        <menu name="java-aprs">
+            <item name="Repository" href="https://github.com/dkaukov/java-aprs"/>
+            <item name="Build parent" href="https://basepom.org/"/>
+        </menu>
+        <menu ref="reports"/>
+    </body>
+</site>
