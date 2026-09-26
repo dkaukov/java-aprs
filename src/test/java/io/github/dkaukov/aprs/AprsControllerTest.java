@@ -41,6 +41,9 @@ import io.github.dkaukov.aprs.parser.Digipeater;
 import io.github.dkaukov.aprs.parser.MessagePacket;
 import io.github.dkaukov.aprs.parser.Parser;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -53,6 +56,19 @@ import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 
 public class AprsControllerTest {
+    @Test public void injectedClockControlsEventAndPacketTimestamps() {
+        Fixture f = fixture(Clock.fixed(Instant.ofEpochMilli(1_234_567L), ZoneOffset.UTC));
+        APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
+
+        f.controller.handle(packet, AprsSource.RX_RF, 144_390_000L, packet.toAX25Frame());
+
+        AprsEvent event = f.events.records.get(0);
+        AprsPacket observation = f.packets.records.get(0);
+        assertEquals(1_234_567L, event.getFirstSeenMs());
+        assertEquals(1_234_567L, event.getLastSeenMs());
+        assertEquals(1_234_567L, observation.getTimestampMs());
+    }
+
     @Test public void rawFallbackPreservesHighWireBytes() {
         Fixture f = fixture();
         byte[] payload = {'?', (byte) 0x80, (byte) 0xff};
@@ -837,11 +853,15 @@ public class AprsControllerTest {
     }
 
     private Fixture fixture() {
+        return fixture(Clock.systemUTC());
+    }
+
+    private Fixture fixture(Clock clock) {
         FakePacketRepository packets = new FakePacketRepository();
         FakeEventRepository events = new FakeEventRepository();
         FakeRepository repository = new FakeRepository(packets, events);
         FakeCallbacks callbacks = new FakeCallbacks();
-        return new Fixture(packets, events, callbacks, new AprsController(repository, callbacks));
+        return new Fixture(packets, events, callbacks, new AprsController(repository, callbacks, clock));
     }
 
     private APRSPacket directMessage(String from, String to, String body, String identifier) {

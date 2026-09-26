@@ -28,6 +28,7 @@ import io.github.dkaukov.aprs.parser.WeatherField;
 import lombok.Getter;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -163,6 +164,7 @@ public final class AprsController {
 
     private final AprsRepository repository;
     private final Callbacks callbacks;
+    private final Clock clock;
     private final Map<String, Long> digipeatInputCache = new ConcurrentHashMap<>();
     private final Map<String, Long> digipeatOutputCache = new ConcurrentHashMap<>();
     private final Map<Long, AprsEvent> pendingReliableEvents = new HashMap<>();
@@ -201,8 +203,25 @@ public final class AprsController {
      * @throws NullPointerException if either argument is {@code null}
      */
     public AprsController(AprsRepository repository, Callbacks callbacks) {
+        this(repository, callbacks, Clock.systemUTC());
+    }
+
+    /**
+     * Creates a controller with an application-supplied wall-clock source.
+     *
+     * <p>The clock supplies Unix-epoch milliseconds for event and packet timestamps, retry
+     * scheduling, and digipeat suppression. Supplying a deterministic clock makes controller
+     * tests reproducible; production callers normally use the two-argument constructor.</p>
+     *
+     * @param repository synchronous storage boundary for immutable events and packets
+     * @param callbacks synchronous application/radio boundary
+     * @param clock source of Unix-epoch milliseconds
+     * @throws NullPointerException if any argument is {@code null}
+     */
+    public AprsController(AprsRepository repository, Callbacks callbacks, Clock clock) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.callbacks = Objects.requireNonNull(callbacks, "callbacks");
+        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     /**
@@ -502,7 +521,7 @@ public final class AprsController {
      */
     public synchronized void recordOutgoingMessage(String from, String to, String text, String messageIdentifier,
                                       Long frequencyHz, APRSPacket packet, byte[] rawAx25) {
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         AprsEvent.AprsEventBuilder event = AprsEvent.builder();
         event.type(AprsEvent.MESSAGE_TYPE);
         event.firstSeenMs(now);
@@ -548,7 +567,7 @@ public final class AprsController {
      * @param rawAx25 transmitted AX.25 UI frame without FCS, flags, or KISS framing
      */
     public synchronized void recordPositionBeacon(String callsign, double latitude, double longitude, Long frequencyHz, APRSPacket packet, byte[] rawAx25) {
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         AprsEvent.AprsEventBuilder event = AprsEvent.builder();
         event.type(AprsEvent.POSITION_TYPE);
         event.firstSeenMs(now);
@@ -594,7 +613,7 @@ public final class AprsController {
 
     private AprsPacket physicalPacket(APRSPacket frame, String source, Long frequencyHz, byte[] rawAx25, String rawTnc2) {
         List<Digipeater> digipeaters = frame.getDigipeaters();
-        return AprsPacket.builder().timestampMs(System.currentTimeMillis())
+        return AprsPacket.builder().timestampMs(clock.millis())
             .source(source == null ? AprsSource.UNKNOWN : source).frequencyHz(frequencyHz)
             .fromCallsign(frame.getSourceCall()).ax25Destination(frame.getDestinationCall())
             .path(digipeaters.isEmpty() ? null : digipeaters.stream()
@@ -613,7 +632,7 @@ public final class AprsController {
             }
         }
         AprsEvent.AprsEventBuilder event = AprsEvent.builder();
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         event.firstSeenMs(now);
         event.lastSeenMs(now);
         event.fromCallsign(packet.getSourceCall());
@@ -748,7 +767,7 @@ public final class AprsController {
             return null;
         }
         String key = logicalPacketKey(packet);
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         pruneDigipeatCache(digipeatInputCache, now);
         if (digipeatInputCache.containsKey(key)) {
             return null;
@@ -787,7 +806,7 @@ public final class AprsController {
     }
 
     private boolean isRecentlyDigipeated(APRSPacket packet) {
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         pruneDigipeatCache(digipeatOutputCache, now);
         Long previous = digipeatOutputCache.get(digipeatOutputKey(packet));
         return previous != null && now - previous < DIGIPEAT_DEDUP_MS;
