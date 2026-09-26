@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- These public DTO fields are read/written by the consuming app's persistence
+         and UI layers, which are outside this library's analysis classpath. -->
+    <Match>
+        <Bug pattern="URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD"/>
+        <Field classname="io.github.dkaukov.aprs.AprsEvent"
+               name="~(comment|deliveryState|humidity|objectName|positionLat|positionLong|pressure|rain|snow|temperature|windDirection|windForce)"/>
+    </Match>
+    <Match>
+        <Bug pattern="URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD,UUF_UNUSED_PUBLIC_OR_PROTECTED_FIELD"/>
+        <Field classname="io.github.dkaukov.aprs.AprsPacket"
+               name="~(id|ax25Destination|eventId|frequencyHz|fromCallsign|path|rawAx25|rawTnc2)"/>
+    </Match>
+
+    <!-- Injected repositories are shared services; copying them would disconnect
+         the controller from the app's persistence state. -->
+    <Match>
+        <Class name="io.github.dkaukov.aprs.AprsController"/>
+        <Method name="&lt;init&gt;"/>
+        <Field name="~(eventRepository|packetRepository)"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- The parser exposes a mutable object graph by design. Callers populate
+         payload fields, edit positions, and append third-party digipeaters.
+         Keep those live references; byte buffers and timestamps are copied. -->
+    <Match>
+        <Class name="io.github.dkaukov.aprs.parser.APRSPacket"/>
+        <Method name="~(getPayload|getDigipeaters)"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="io.github.dkaukov.aprs.parser.InformationField"/>
+        <Method name="getAprsData"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="io.github.dkaukov.aprs.parser.ObjectField"/>
+        <Method name="getPosition"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="io.github.dkaukov.aprs.parser.PositionField"/>
+        <Method name="~(getPosition|setPosition|&lt;init&gt;)"/>
+        <Field name="position"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="io.github.dkaukov.aprs.parser.ThirdPartyField"/>
+        <Method name="~(getInnerPacket|&lt;init&gt;)"/>
+        <Field name="innerPacket"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- These extensible data-only classes acquire no resources or privileges.
+         A failed parse cannot leak a privileged object through finalization.
+         Making them final would unnecessarily break the public extension API. -->
+    <Match>
+        <Class name="~io\.github\.dkaukov\.aprs\.parser\.(ItemField|PositionField)"/>
+        <Method name="&lt;init&gt;"/>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+    </Match>
+</FindBugsFilter>

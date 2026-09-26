@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.basepom</groupId>
+        <artifactId>basepom-oss</artifactId>
+        <version>63</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>io.github.dkaukov</groupId>
+    <artifactId>java-aprs</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>java-aprs</name>
+    <description>Platform-independent APRS protocol and domain library for KV4P HT</description>
+    <url>https://github.com/dkaukov/java-aprs</url>
+
+    <licenses>
+        <license>
+            <name>GNU General Public License v3.0</name>
+            <url>https://www.gnu.org/licenses/gpl-3.0.en.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>dkaukov</id>
+            <name>Dmitry Kaukov</name>
+            <url>https://github.com/dkaukov</url>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/dkaukov/java-aprs.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/dkaukov/java-aprs.git</developerConnection>
+        <url>https://github.com/dkaukov/java-aprs</url>
+        <tag>HEAD</tag>
+    </scm>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.build.targetJdk>11</project.build.targetJdk>
+        <basepom.release.profiles>basepom.central-release</basepom.release.profiles>
+        <basepom.release.push-changes>true</basepom.release.push-changes>
+        <basepom.license.header>license-header.txt</basepom.license.header>
+        <basepom.check.fail-spotbugs>true</basepom.check.fail-spotbugs>
+        <!-- Basepom's style profile reports 1,730 violations in the imported code. -->
+        <basepom.check.skip-checkstyle>true</basepom.check.skip-checkstyle>
+        <basepom.check.fail-license>false</basepom.check.fail-license>
+        <junit.version>4.13.2</junit.version>
+        <lombok.version>1.18.46</lombok.version>
+    </properties>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <configuration>
+                    <excludeFilterFiles combine.children="append">
+                        <excludeFilterFile>${project.basedir}/config/spotbugs-exclude.xml</excludeFilterFile>
+                    </excludeFilterFiles>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+            <version>24.1.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>
