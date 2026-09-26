@@ -43,7 +43,10 @@ public final class AprsIsClient implements AutoCloseable {
     private static final int READ_POLL_MS = 1_000;
     private static final long INITIAL_RECONNECT_DELAY_MS = 1_000;
     private static final long MAX_RECONNECT_DELAY_MS = 60_000;
-    private static final double MIN_FILTER_MOVE_KM = 5.0;
+    /** Default APRS-IS nearby-feed radius, in kilometres. */
+    public static final double DEFAULT_NEARBY_FILTER_RADIUS_KM = 50.0;
+    /** Default distance a location must move before the nearby filter is refreshed. */
+    public static final double DEFAULT_FILTER_MOVEMENT_THRESHOLD_KM = 5.0;
     private static final Pattern AX25_CALLSIGN = Pattern.compile(
         "^[A-Z0-9]{3,6}(?:-[A-Z0-9]{1,2})?$");
 
@@ -60,6 +63,8 @@ public final class AprsIsClient implements AutoCloseable {
     private boolean transmitEnabled;
     private Double filterLatitude;
     private Double filterLongitude;
+    private double nearbyFilterRadiusKm = DEFAULT_NEARBY_FILTER_RADIUS_KM;
+    private double filterMovementThresholdKm = DEFAULT_FILTER_MOVEMENT_THRESHOLD_KM;
     private boolean closed;
     private long configurationGeneration;
     /** Incremented only when queued packet content changes, never merely because a retry fails. */
@@ -132,7 +137,40 @@ public final class AprsIsClient implements AutoCloseable {
         }
     }
 
-    /** Updates the explicit receive-filter center after meaningful phone movement. */
+    /**
+     * Sets the APRS-IS nearby-feed radius in kilometres.
+     *
+     * <p>Changing the radius reconnects an active receive session so its login filter is updated.</p>
+     *
+     * @param radiusKm positive, finite nearby-feed radius in kilometres
+     */
+    public void setNearbyFilterRadiusKm(double radiusKm) {
+        requirePositiveFinite(radiusKm, "Nearby filter radius");
+        synchronized (lock) {
+            if (Double.compare(nearbyFilterRadiusKm, radiusKm) == 0) {
+                return;
+            }
+            nearbyFilterRadiusKm = radiusKm;
+            configurationGeneration++;
+            disconnectLocked();
+            lock.notifyAll();
+        }
+    }
+
+    /**
+     * Sets the movement distance that causes {@link #setFilterLocation(Double, Double)} to
+     * reconnect with a new nearby-filter center.
+     *
+     * @param thresholdKm positive, finite distance in kilometres
+     */
+    public void setFilterMovementThresholdKm(double thresholdKm) {
+        requirePositiveFinite(thresholdKm, "Filter movement threshold");
+        synchronized (lock) {
+            filterMovementThresholdKm = thresholdKm;
+        }
+    }
+
+    /** Updates the explicit receive-filter center after movement beyond the configured threshold. */
     public void setFilterLocation(Double latitude, Double longitude) {
         boolean valid = isValidLocation(latitude, longitude);
         Double nextLatitude = valid ? latitude : null;
@@ -224,16 +262,18 @@ public final class AprsIsClient implements AutoCloseable {
         return hash & 0x7fff;
     }
 
-    static String loginLine(String callsign, int passcode, String software, String softwareVersion, boolean receiveEnabled, Double latitude, Double longitude) {
+    static String loginLine(String callsign, int passcode, String software, String softwareVersion,
+                            boolean receiveEnabled, Double latitude, Double longitude,
+                            double nearbyFilterRadiusKm) {
         String login = "user " + callsign + " pass " + passcode + " vers " + software + " " + softwareVersion;
         if (!receiveEnabled) {
             return login;
         }
         if (isValidLocation(latitude, longitude)) {
-            return login + String.format(Locale.US, " filter r/%.5f/%.5f/50",
-                latitude, longitude);
+            return login + String.format(Locale.US, " filter r/%.5f/%.5f/%s",
+                latitude, longitude, formatFilterDistance(nearbyFilterRadiusKm));
         }
-        return login + " filter m/50";
+        return login + " filter m/" + formatFilterDistance(nearbyFilterRadiusKm);
     }
 
     private void runConnectionLoop() {
@@ -276,6 +316,7 @@ public final class AprsIsClient implements AutoCloseable {
             return closed ? null
                 : new ConnectionConfiguration(server, callsign, receiveEnabled,
                     transmitEnabled, filterLatitude, filterLongitude,
+                    nearbyFilterRadiusKm,
                     configurationGeneration);
         }
     }
@@ -310,7 +351,9 @@ public final class AprsIsClient implements AutoCloseable {
                     throw new IOException("APRS-IS closed before login");
                 }
                 int loginPasscode = configuration.transmitEnabled ? passcode(configuration.callsign) : -1;
-                writeLine(writer, loginLine(configuration.callsign, loginPasscode, software, softwareVersion, configuration.receiveEnabled, configuration.filterLatitude, configuration.filterLongitude));
+                writeLine(writer, loginLine(configuration.callsign, loginPasscode, software,
+                    softwareVersion, configuration.receiveEnabled, configuration.filterLatitude,
+                    configuration.filterLongitude, configuration.nearbyFilterRadiusKm));
                 awaitLogin(reader, configuration.callsign, configuration.transmitEnabled);
                 loggedIn = true;
                 logInfo("APRS-IS login accepted for " + configuration.callsign);
@@ -510,10 +553,11 @@ public final class AprsIsClient implements AutoCloseable {
             return "none";
         }
         if (isValidLocation(configuration.filterLatitude, configuration.filterLongitude)) {
-            return String.format(Locale.US, "r/%.5f/%.5f/50",
-                configuration.filterLatitude, configuration.filterLongitude);
+            return String.format(Locale.US, "r/%.5f/%.5f/%s",
+                configuration.filterLatitude, configuration.filterLongitude,
+                formatFilterDistance(configuration.nearbyFilterRadiusKm));
         }
-        return "m/50";
+        return "m/" + formatFilterDistance(configuration.nearbyFilterRadiusKm);
     }
 
     private static void logDebug(String message) {
@@ -556,7 +600,18 @@ public final class AprsIsClient implements AutoCloseable {
                 && filterLatitude == null && filterLongitude == null;
         }
         return distanceKm(filterLatitude, filterLongitude, latitude, longitude)
-            < MIN_FILTER_MOVE_KM;
+            < filterMovementThresholdKm;
+    }
+
+    private static String formatFilterDistance(double distanceKm) {
+        return String.format(Locale.US, "%.3f", distanceKm)
+            .replaceFirst("\\.0+$", "").replaceFirst("(\\.[0-9]*?)0+$", "$1");
+    }
+
+    private static void requirePositiveFinite(double value, String name) {
+        if (!Double.isFinite(value) || value <= 0) {
+            throw new IllegalArgumentException(name + " must be positive and finite");
+        }
     }
 
     private static boolean isValidLocation(Double latitude, Double longitude) {
@@ -652,11 +707,13 @@ public final class AprsIsClient implements AutoCloseable {
         private final boolean transmitEnabled;
         private final Double filterLatitude;
         private final Double filterLongitude;
+        private final double nearbyFilterRadiusKm;
         private final long generation;
 
         private ConnectionConfiguration(ServerAddress server, String callsign,
                                         boolean receiveEnabled, boolean transmitEnabled,
                                         Double filterLatitude, Double filterLongitude,
+                                        double nearbyFilterRadiusKm,
                                         long generation) {
             this.server = server;
             this.callsign = callsign;
@@ -664,6 +721,7 @@ public final class AprsIsClient implements AutoCloseable {
             this.transmitEnabled = transmitEnabled;
             this.filterLatitude = filterLatitude;
             this.filterLongitude = filterLongitude;
+            this.nearbyFilterRadiusKm = nearbyFilterRadiusKm;
             this.generation = generation;
         }
     }

@@ -157,6 +157,12 @@ Supply the APRS-IS identity explicitly: `new AprsIsClient("MyApp", "1.0")`.
 The client no longer advertises KV4P HT automatically. Software name and version
 are normalized to single tokens before transmission.
 
+The APRS-IS nearby receive filter defaults to a 50 km radius and refreshes its
+center after 5 km of movement. Configure other values before enabling the client:
+`setNearbyFilterRadiusKm(radiusKm)` and
+`setFilterMovementThresholdKm(thresholdKm)`. Both require positive finite values;
+changing the radius reconnects an active receive session.
+
 Construct RF packets with an explicit destination:
 `new APRSPacket(source, tocall, path, payload)`. The implicit KV4P constructor
 and `KV4P_HT_VENDOR_TOCALL` constant are removed; KV4P consumers must supply

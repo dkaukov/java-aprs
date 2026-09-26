@@ -245,10 +245,34 @@ public class AprsIsClientTest {
     }
 
     @Test public void loginUsesAprsIsSyntax() {
-        assertEquals("user VK3ABC pass 21675 vers test 2.0", AprsIsClient.loginLine("VK3ABC", 21675, "test", "2.0", false, null, null));
-        assertEquals("user VK3ABC pass 21675 vers test 2.0 filter m/50", AprsIsClient.loginLine("VK3ABC", 21675, "test", "2.0", true, null, null));
+        assertEquals("user VK3ABC pass 21675 vers test 2.0", AprsIsClient.loginLine("VK3ABC", 21675, "test", "2.0", false, null, null, 50));
+        assertEquals("user VK3ABC pass 21675 vers test 2.0 filter m/50", AprsIsClient.loginLine("VK3ABC", 21675, "test", "2.0", true, null, null, 50));
         assertEquals("user VK3ABC pass -1 vers test 2.0 filter r/-37.81360/144.96310/50",
-            AprsIsClient.loginLine("VK3ABC", -1, "test", "2.0", true, -37.8136, 144.9631));
+            AprsIsClient.loginLine("VK3ABC", -1, "test", "2.0", true, -37.8136, 144.9631, 50));
+    }
+
+    @Test public void nearbyFilterSettingsAreConfigurable() throws Exception {
+        try (AprsIsClient client = idleClient()) {
+            client.setReceiveEnabled(true);
+            assertEquals("m/50", invoke(client, "filterDescription", invoke(client, "awaitConfiguration")));
+            client.setNearbyFilterRadiusKm(125.5);
+            assertEquals("m/125.5", invoke(client, "filterDescription", invoke(client, "awaitConfiguration")));
+
+            client.setFilterLocation(-37.8136, 144.9631);
+            assertTrue((Boolean) invoke(client, "sameFilterLocation", -37.8046, 144.9631));
+            client.setFilterMovementThresholdKm(1.0);
+            assertFalse((Boolean) invoke(client, "sameFilterLocation", -37.8046, 144.9631));
+        }
+    }
+
+    @Test public void nearbyFilterSettingsRejectNonpositiveOrInfiniteDistances() throws Exception {
+        try (AprsIsClient client = idleClient()) {
+            assertThrows(IllegalArgumentException.class, () -> client.setNearbyFilterRadiusKm(0));
+            assertThrows(IllegalArgumentException.class,
+                () -> client.setNearbyFilterRadiusKm(Double.POSITIVE_INFINITY));
+            assertThrows(IllegalArgumentException.class,
+                () -> client.setFilterMovementThresholdKm(-1));
+        }
     }
 
     @Test public void receiveModeRequestsNearbyFeedAndDeliversOnlyPackets() throws Exception {

@@ -6,6 +6,28 @@
 APRS-IS client used by KV4P HT. It builds as a standalone Maven library. Android persistence,
 UI feed projection, location, radio transport, and notifications remain in the KV4P app.
 
+## Use as a library
+
+Provide an `AprsRepository` for event/packet storage and `AprsController.Callbacks` for radio,
+UI, and iGate integration. Feed the controller decoded RF frames with their transport metadata:
+
+```java
+AprsController controller = new AprsController(repository, callbacks);
+
+APRSPacket packet = Parser.parseAX25(frame);
+controller.handle(packet, AprsSource.RX_RF, 144_390_000L, frame);
+```
+
+To receive APRS-IS packets through the same event pipeline, pass the controller callback to the
+client. Configure its callsign, receive/transmit modes, and enabled state for your application:
+
+```java
+try (AprsIsClient aprsIs =
+        new AprsIsClient("MyApp", "1.0", controller::handleAprsIsPacket)) {
+    // Configure aprsIs, then keep it open while the application runs.
+}
+```
+
 Run `mvn clean install` to install `io.github.dkaukov:java-aprs:0.1.0-SNAPSHOT` in Maven Local
 before building the Android app.
 
