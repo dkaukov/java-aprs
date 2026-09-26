@@ -31,18 +31,18 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
  * Owns APRS parsing, event aggregation, packet history, retries, beacon cadence, and digipeating.
  *
- * <p>{@link AprsPacket} records transport facts and is normally immutable. {@link AprsEvent}
+ * <p>{@link AprsPacket} records immutable transport facts. {@link AprsEvent}
  * records one user-visible occurrence and may aggregate multiple received copies, retries, and a
  * delivery response. The normal UI observes events; packet history remains available for future
  * diagnostics and iGate work.</p>
@@ -60,27 +60,6 @@ public final class AprsController {
     private static final long EVENT_DUPLICATE_WINDOW_MS = 30_000L;
     private static final long NUMBERED_MESSAGE_DUPLICATE_WINDOW_MS = 30 * 60_000L;
     private static final long DIGIPEAT_DEDUP_MS = 28_000L;
-    private static final long RETRY_SCHEDULE_UNINITIALIZED = Long.MIN_VALUE;
-    private static final long NO_RETRY_SCHEDULED = Long.MAX_VALUE;
-
-    /** Persistence boundary; insert receives a detached snapshot and returns its assigned ID. */
-    public interface PacketRepository {
-        long insert(AprsPacket packet);
-    }
-
-    /**
-     * Persistence boundary for immutable events. Inserts return the assigned ID;
-     * updates replace the stored event by ID, leaving previous values unchanged.
-     */
-    public interface EventRepository {
-        List<AprsEvent> loadDueReliableEvents(long now);
-        Long loadNextReliableRetryAt();
-        long insert(AprsEvent event);
-        void update(AprsEvent event);
-        AprsEvent findById(long id);
-        AprsEvent findRecentByDedupKey(String dedupKey, long sinceMs);
-        AprsEvent findPendingOutgoingEvent(String localCallsign, String remoteCallsign, String messageIdentifier);
-    }
 
     /** Immutable snapshot accepted by a radio callback, ready to record as transmitted. */
     public static final class Transmission {
@@ -119,17 +98,18 @@ public final class AprsController {
         boolean gateToAprsIs(String tnc2, Long eventId);
     }
 
-    private final RepositoryAccess repositories;
+    private final AprsRepository repository;
     private final Callbacks callbacks;
     private final Map<String, Long> digipeatInputCache = new ConcurrentHashMap<>();
     private final Map<String, Long> digipeatOutputCache = new ConcurrentHashMap<>();
+    private final Map<Long, AprsEvent> pendingReliableEvents = new HashMap<>();
     @Getter
     private volatile boolean positionBeaconingEnabled;
     private volatile long nextPositionBeaconAt;
     private volatile long positionBeaconIntervalMs;
-    private final AtomicLong nextReliableRetryAt = new AtomicLong(RETRY_SCHEDULE_UNINITIALIZED);
     private volatile boolean digipeatingEnabled;
     private volatile boolean igateEnabled;
+    private boolean pendingReliableEventsLoaded;
 
     public synchronized void setDigipeatingEnabled(boolean enabled) {
         digipeatingEnabled = enabled;
@@ -140,9 +120,10 @@ public final class AprsController {
         igateEnabled = enabled;
     }
 
-    public AprsController(PacketRepository packetRepository, EventRepository eventRepository, Callbacks callbacks) {
-        this.repositories = new RepositoryAccess(packetRepository, eventRepository);
-        this.callbacks = callbacks;
+    /** Creates a controller backed by the application's repository implementation and callbacks. */
+    public AprsController(AprsRepository repository, Callbacks callbacks) {
+        this.repository = Objects.requireNonNull(repository, "repository");
+        this.callbacks = Objects.requireNonNull(callbacks, "callbacks");
     }
 
     /** Processes one decoded packet and associates it with a user event when possible. */
@@ -192,14 +173,14 @@ public final class AprsController {
         if (digipeated != null) {
             recordTransmissionNow(event == null ? null : event.getId(), digipeated, true);
         }
-        if (AprsSource.RX_RF.equals(packet.source)) {
+        if (AprsSource.RX_RF.equals(packet.getSource())) {
             maybeGateToAprsIs(frame, event == null ? null : event.getId());
         }
     }
 
     private AprsEvent persistPacket(AprsPacket packet, ParsedEvent parsed) {
         if (parsed == null) {
-            repositories.insert(packet);
+            repository.insert(packet);
             return null;
         }
         if (parsed.acknowledgement || parsed.rejection) {
@@ -208,15 +189,15 @@ public final class AprsController {
         if (parsed.event != null) {
             return persistEvent(packet, parsed.event);
         }
-        repositories.insert(packet);
+        repository.insert(packet);
         return null;
     }
 
     private AprsEvent persistDeliveryResponse(AprsPacket packet, ParsedEvent response) {
-        AprsEvent event = repositories.findPendingOutgoingEvent(response.targetCallsign,
+        AprsEvent event = repository.findPendingOutgoingEvent(response.targetCallsign,
             response.fromCallsign, response.messageIdentifier);
         if (event == null) {
-            repositories.insert(packet);
+            repository.insert(packet);
             return null;
         }
         event = event.toBuilder().deliveryState(response.acknowledgement
@@ -226,20 +207,20 @@ public final class AprsController {
     }
 
     private AprsEvent persistEvent(AprsPacket packet, AprsEvent candidate) {
-        AprsEvent event = repositories.findRecentByDedupKey(candidate.getDedupKey(),
+        AprsEvent event = repository.findRecentByDedupKey(candidate.getDedupKey(),
             candidate.getLastSeenMs() - duplicateWindowMs(candidate));
         boolean created = event == null;
         if (created) {
             candidate = candidate.toBuilder().packetCount(1).build();
-            event = candidate.toBuilder().id(repositories.insert(candidate)).build();
-            packet.eventId = event.getId();
-            repositories.insert(packet);
+            event = candidate.toBuilder().id(repository.insert(candidate)).build();
+            packet = packet.toBuilder().eventId(event.getId()).build();
+            repository.insert(packet);
         } else {
             event = mergeObservation(event, candidate);
             event = associatePacket(event, packet);
         }
         if (event.getType() == AprsEvent.MESSAGE_TYPE) {
-            notifyAndAcknowledge(event, created, packet.source);
+            notifyAndAcknowledge(event, created, packet.getSource());
         }
         return event;
     }
@@ -251,11 +232,12 @@ public final class AprsController {
     }
 
     private AprsEvent associatePacket(AprsEvent event, AprsPacket packet) {
-        packet.eventId = event.getId();
-        repositories.insert(packet);
+        packet = packet.toBuilder().eventId(event.getId()).build();
+        repository.insert(packet);
         event = event.toBuilder().packetCount(event.getPacketCount() + 1)
-            .lastSeenMs(Math.max(event.getLastSeenMs(), packet.timestampMs)).build();
-        repositories.update(event);
+            .lastSeenMs(Math.max(event.getLastSeenMs(), packet.getTimestampMs())).build();
+        repository.update(event);
+        updatePendingReliableEvent(event);
         return event;
     }
 
@@ -284,11 +266,11 @@ public final class AprsController {
             APRSPacket frame = Parser.parse(tnc2);
             AprsPacket packet = physicalPacket(frame, AprsSource.TX_APRS_IS, null, null, tnc2);
             if (eventId == null) {
-                repositories.insert(packet);
+                repository.insert(packet);
             } else {
-                AprsEvent event = repositories.findById(eventId);
+                AprsEvent event = repository.findById(eventId);
                 if (event == null) {
-                    repositories.insert(packet);
+                    repository.insert(packet);
                 } else {
                     associatePacket(event, packet);
                 }
@@ -305,12 +287,12 @@ public final class AprsController {
     private void recordTransmissionNow(Long eventId, Transmission transmission, boolean digipeated) {
         AprsPacket packet = physicalPacket(transmission.packet, AprsSource.TX_RF, transmission.frequencyHz, transmission.rawAx25);
         if (eventId == null) {
-            repositories.insert(packet);
+            repository.insert(packet);
             return;
         }
-        AprsEvent event = repositories.findById(eventId);
+        AprsEvent event = repository.findById(eventId);
         if (event == null) {
-            repositories.insert(packet);
+            repository.insert(packet);
         } else {
             event = event.toBuilder().digipeated(event.isDigipeated() || digipeated).build();
             associatePacket(event, packet);
@@ -319,36 +301,16 @@ public final class AprsController {
 
     /** Runs due reliable-message retries and periodic beacon scheduling. */
     public synchronized void tick(long now) {
-        initializeReliableRetrySchedule();
-        long retryAt = nextReliableRetryAt.get();
-        if (retryAt != NO_RETRY_SCHEDULED && now >= retryAt) {
-            for (AprsEvent event : repositories.loadDueReliableEvents(now)) {
+        loadPendingReliableEvents();
+        for (AprsEvent event : new ArrayList<>(pendingReliableEvents.values())) {
+            if (event.getNextRetryAtMs() != null && event.getNextRetryAtMs() <= now) {
                 retryOrFail(event, now);
             }
-            reloadReliableRetrySchedule();
         }
         if (positionBeaconingEnabled && now >= nextPositionBeaconAt) {
             nextPositionBeaconAt = now + positionBeaconIntervalMs;
             callbacks.requestPositionBeacon();
         }
-    }
-
-    private void initializeReliableRetrySchedule() {
-        if (nextReliableRetryAt.get() == RETRY_SCHEDULE_UNINITIALIZED) {
-            reloadReliableRetrySchedule();
-        }
-    }
-
-    private void reloadReliableRetrySchedule() {
-        Long retryAt = repositories.loadNextReliableRetryAt();
-        nextReliableRetryAt.set(retryAt == null ? NO_RETRY_SCHEDULED : retryAt);
-    }
-
-    private void includeInReliableRetrySchedule(Long retryAt) {
-        if (retryAt == null) {
-            return;
-        }
-        nextReliableRetryAt.updateAndGet(current -> current == RETRY_SCHEDULE_UNINITIALIZED ? current : Math.min(current, retryAt));
     }
 
     /**
@@ -377,17 +339,18 @@ public final class AprsController {
                 event = event.toBuilder().nextRetryAtMs(now + RETRY_DELAYS_MS[0]).build();
             } else {
                 AprsPacket packet = physicalPacket(transmission.packet, AprsSource.TX_RF, transmission.frequencyHz, transmission.rawAx25);
-                packet.eventId = event.getId();
-                repositories.insert(packet);
+                packet = packet.toBuilder().eventId(event.getId()).build();
+                repository.insert(packet);
                 int attempts = event.getTransmitAttempts() + 1;
                 event = event.toBuilder().packetCount(event.getPacketCount() + 1)
-                    .lastSeenMs(Math.max(event.getLastSeenMs(), packet.timestampMs))
+                    .lastSeenMs(Math.max(event.getLastSeenMs(), packet.getTimestampMs()))
                     .transmitAttempts(attempts)
                     .nextRetryAtMs(attempts >= RETRY_DELAYS_MS.length + 1
                         ? now + FINAL_ACK_GRACE_MS : now + RETRY_DELAYS_MS[attempts - 1]).build();
             }
         }
-        repositories.update(event);
+        repository.update(event);
+        updatePendingReliableEvent(event);
     }
 
     /** Records a new outgoing chat event and its first transmitted packet. */
@@ -437,10 +400,29 @@ public final class AprsController {
     private void persistOutgoingEvent(AprsEvent event, APRSPacket frame, Long frequencyHz, byte[] rawAx25) {
         event = event.toBuilder().dedupKey(logicalPacketKey(frame)).build();
         AprsPacket packet = physicalPacket(frame, AprsSource.TX_RF, frequencyHz, rawAx25);
-        event = event.toBuilder().id(repositories.insert(event)).build();
-        packet.eventId = event.getId();
-        repositories.insert(packet);
-        includeInReliableRetrySchedule(event.getNextRetryAtMs());
+        event = event.toBuilder().id(repository.insert(event)).build();
+        packet = packet.toBuilder().eventId(event.getId()).build();
+        repository.insert(packet);
+        updatePendingReliableEvent(event);
+    }
+
+    private void loadPendingReliableEvents() {
+        if (pendingReliableEventsLoaded) {
+            return;
+        }
+        for (AprsEvent event : repository.loadPendingReliableEvents()) {
+            updatePendingReliableEvent(event);
+        }
+        pendingReliableEventsLoaded = true;
+    }
+
+    private void updatePendingReliableEvent(AprsEvent event) {
+        if (event.getDeliveryState() == AprsEvent.DELIVERY_PENDING
+            && event.getNextRetryAtMs() != null) {
+            pendingReliableEvents.put(event.getId(), event);
+        } else {
+            pendingReliableEvents.remove(event.getId());
+        }
     }
 
     private AprsPacket physicalPacket(APRSPacket frame, String source, Long frequencyHz, byte[] rawAx25) {
@@ -448,17 +430,13 @@ public final class AprsController {
     }
 
     private AprsPacket physicalPacket(APRSPacket frame, String source, Long frequencyHz, byte[] rawAx25, String rawTnc2) {
-        AprsPacket packet = new AprsPacket();
-        packet.timestampMs = System.currentTimeMillis();
-        packet.source = source == null ? AprsSource.UNKNOWN : source;
-        packet.frequencyHz = frequencyHz;
-        packet.fromCallsign = frame.getSourceCall();
-        packet.ax25Destination = frame.getDestinationCall();
         List<Digipeater> digipeaters = frame.getDigipeaters();
-        packet.path = digipeaters == null || digipeaters.isEmpty() ? null : digipeaters.stream().map(Digipeater::toString).collect(Collectors.joining(","));
-        packet.rawAx25 = rawAx25 == null ? null : Arrays.copyOf(rawAx25, rawAx25.length);
-        packet.rawTnc2 = rawTnc2;
-        return packet;
+        return AprsPacket.builder().timestampMs(System.currentTimeMillis())
+            .source(source == null ? AprsSource.UNKNOWN : source).frequencyHz(frequencyHz)
+            .fromCallsign(frame.getSourceCall()).ax25Destination(frame.getDestinationCall())
+            .path(digipeaters.isEmpty() ? null : digipeaters.stream()
+                .map(Digipeater::toString).collect(Collectors.joining(",")))
+            .rawAx25(rawAx25).rawTnc2(rawTnc2).build();
     }
 
     private ParsedEvent parseEvent(PacketContext context) {

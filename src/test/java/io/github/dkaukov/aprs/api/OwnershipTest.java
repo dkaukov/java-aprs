@@ -69,16 +69,13 @@ public class OwnershipTest {
     }
 
     @Test public void modelAccessorsAndCopiesPreserveDataWithoutSharingBuffers() {
-        AprsPacket packet = new AprsPacket();
         byte[] frame = {1, 2, 3};
-        packet.setRawAx25(frame);
-        packet.setSource("RF");
-        packet.setId(7);
+        AprsPacket packet = AprsPacket.builder().rawAx25(frame).source("RF").id(7).build();
         frame[0] = 9;
         packet.getRawAx25()[1] = 9;
-        AprsPacket copy = packet.copy();
-        copy.setRawAx25(new byte[] {4});
+        AprsPacket copy = packet.toBuilder().rawAx25(new byte[] {4}).build();
         assertArrayEquals(new byte[] {1, 2, 3}, packet.getRawAx25());
+        assertArrayEquals(new byte[] {4}, copy.getRawAx25());
         assertEquals("RF", copy.getSource());
         assertEquals(7, copy.getId());
 
@@ -89,6 +86,18 @@ public class OwnershipTest {
         assertEquals("original", event.getBody());
         assertEquals(AprsEvent.DELIVERY_PENDING, snapshot.getDeliveryState());
         assertTrue(snapshot.isInternetOnly());
+    }
+
+    @Test public void packetStateIsPrivateFinalAndHasNoSetters() {
+        for (java.lang.reflect.Field field : AprsPacket.class.getDeclaredFields()) {
+            if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                assertTrue(java.lang.reflect.Modifier.isPrivate(field.getModifiers()));
+                assertTrue(java.lang.reflect.Modifier.isFinal(field.getModifiers()));
+            }
+        }
+        for (java.lang.reflect.Method method : AprsPacket.class.getMethods()) {
+            assertFalse(method.getName().startsWith("set"));
+        }
     }
 
     @Test public void packetOwnsItsDigipeatersAndReturnsDetachedElements() {

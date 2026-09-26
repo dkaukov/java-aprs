@@ -16,7 +16,7 @@ Java-8-compatible unmodifiable collection wrappers. Android consumers with minSd
 Remove the executor argument from controller construction:
 
 ```java
-AprsController controller = new AprsController(packetRepository, eventRepository, callbacks);
+AprsController controller = new AprsController(repository, callbacks);
 ```
 
 All state-changing calls are synchronous and internally serialized per controller
@@ -67,12 +67,20 @@ boolean internetOnly = event.isInternetOnly();
 Boolean getters use `is`, including `isDigipeated()`. Update persistence mappers
 to build events instead of populating them with setters. Unspecified builder
 fields retain Java defaults (zero, false, or null). `toBuilder()` preserves every
-field. `copy()` returns the same immutable event; it no longer allocates a copy.
+field.
 
-`AprsPacket` remains a mutable final class with JavaBean getters/setters,
-a copy constructor, and `copy()`. It copies `rawAx25` on input,
-output, and copying; modifying an array returned by `getRawAx25()` has no effect
-until you call `setRawAx25()`.
+`AprsPacket` is also immutable: its no-arg and copy constructors and setters are
+removed. Create it with `builder()` and derive a replacement with `toBuilder()`:
+
+```java
+AprsPacket packet = AprsPacket.builder()
+    .source(AprsSource.RX_RF).rawAx25(frame).build();
+packet = packet.toBuilder().eventId(eventId).build();
+```
+
+`rawAx25` is copied when a packet is built and whenever `getRawAx25()` is called.
+Do not expect a repository to assign an ID by mutating its insert argument; store a
+replacement built with the assigned ID.
 
 ## Parser ownership
 
@@ -117,15 +125,17 @@ state and independently copy mutable children.
 
 ## Repository contract
 
-Repository interface signatures are unchanged. The controller shares immutable
-events and copies mutable packets at the repository
-boundary. Implement `update()` to replace/persist the supplied event by ID;
+Replace the separate `PacketRepository` and `EventRepository` constructor arguments
+with one `AprsRepository` implementation. The controller shares immutable events and
+packets at this boundary. Implement `update()` to replace/persist the supplied event by ID;
 do not rely on edits to previously returned objects becoming visible by identity.
 `insert()` must return the assigned ID. If the repository stores events in memory,
 store `event.toBuilder().id(assignedId).build()` rather than changing the input.
 Existing event references remain unchanged after updates; reload by ID for the
-latest state. The backing store remains shared, so
-later queries still observe committed app-side changes.
+latest state. On its first `tick()`, the controller loads pending reliable events
+once and keeps its own retry cache current as it inserts or updates events. Do not
+modify pending reliable events through another controller or direct repository
+access while that controller is running.
 
 ## Callback and packet ownership
 

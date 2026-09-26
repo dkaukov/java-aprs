@@ -12,47 +12,61 @@
 
 package io.github.dkaukov.aprs;
 
-/** Mutable transport history for one received or transmitted APRS packet. */
-@lombok.Getter
-@lombok.Setter
+import lombok.Builder;
+import lombok.Data;
+
+/**
+ * Immutable record of one physical APRS packet received or transmitted by the controller.
+ *
+ * <p>An event may be associated with multiple packet records: for example, an RF packet and
+ * its APRS-IS-gated copy. Build a record with {@code builder()} and derive a changed value
+ * with {@code toBuilder()}. The AX.25 byte array is defensively copied on input and output.</p>
+ */
+@Data
+@Builder(toBuilder = true)
 public final class AprsPacket {
-    long id;
-    Long eventId;
-    long timestampMs;
-    String source;
+    /** Persistent identifier assigned by the packet repository; {@code 0} before insertion. */
+    private final long id;
+    /** Identifier of the logical {@link AprsEvent} represented by this packet, if associated. */
+    private final Long eventId;
+    /** Wall-clock time, in milliseconds since the Unix epoch, when the packet was observed. */
+    private final long timestampMs;
+    /** Direction and medium of the packet, normally one of the {@link AprsSource} values. */
+    private final String source;
     /** RF frequency in Hz, or {@code null} for non-RF sources. */
-    Long frequencyHz;
-    String fromCallsign;
-    String ax25Destination;
+    private final Long frequencyHz;
+    /** Source callsign decoded from the AX.25 frame, or {@code null} when unavailable. */
+    private final String fromCallsign;
+    /** AX.25 destination callsign decoded from the frame, or {@code null} when unavailable. */
+    private final String ax25Destination;
     /** Comma-separated AX.25 digipeater path, retaining repeated-hop markers. */
-    String path;
+    private final String path;
     /** Exact AX.25 frame bytes without FCS, KISS, or serial transport framing. */
-    byte[] rawAx25;
+    private final byte[] rawAx25;
     /** Exact TNC2 packet line sent to or received from APRS-IS, without a line terminator. */
-    String rawTnc2;
+    private final String rawTnc2;
+
+    /**
+     * Returns an independent copy of the AX.25 frame bytes.
+     *
+     * @return the frame bytes, or {@code null} when the packet has no AX.25 representation
+     */
     public byte[] getRawAx25() {
         return rawAx25 == null ? null : rawAx25.clone();
     }
 
-    public void setRawAx25(byte[] value) {
-        rawAx25 = value == null ? null : value.clone();
-    }
-    public AprsPacket() {}
-
-    public AprsPacket(AprsPacket source) {
-        id = source.id;
-        eventId = source.eventId;
-        timestampMs = source.timestampMs;
-        this.source = source.source;
-        frequencyHz = source.frequencyHz;
-        fromCallsign = source.fromCallsign;
-        ax25Destination = source.ax25Destination;
-        path = source.path;
-        rawAx25 = source.rawAx25 == null ? null : source.rawAx25.clone();
-        rawTnc2 = source.rawTnc2;
+    /** Mutable builder state; built packets never retain a caller-owned byte array. */
+    public static class AprsPacketBuilder {
+        /**
+         * Stores an independent snapshot of AX.25 frame bytes.
+         *
+         * @param rawAx25 frame bytes without FCS or transport framing, or {@code null}
+         * @return this builder
+         */
+        public AprsPacketBuilder rawAx25(byte[] rawAx25) {
+            this.rawAx25 = rawAx25 == null ? null : rawAx25.clone();
+            return this;
+        }
     }
 
-    public AprsPacket copy() {
-        return new AprsPacket(this);
-    }
 }
