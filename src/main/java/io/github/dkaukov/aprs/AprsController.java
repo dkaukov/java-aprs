@@ -25,6 +25,9 @@ import io.github.dkaukov.aprs.parser.StatusField;
 import io.github.dkaukov.aprs.parser.ThirdPartyField;
 import io.github.dkaukov.aprs.parser.Utilities;
 import io.github.dkaukov.aprs.parser.WeatherField;
+import lombok.Getter;
+import lombok.Setter;
+
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,6 +35,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
@@ -100,34 +104,25 @@ public final class AprsController {
     }
 
     private final RepositoryAccess repositories;
-    private final Executor executor;
     private final Callbacks callbacks;
     private final Map<String, Long> digipeatInputCache = new ConcurrentHashMap<>();
     private final Map<String, Long> digipeatOutputCache = new ConcurrentHashMap<>();
+    @Getter
     private volatile boolean positionBeaconingEnabled;
     private volatile long nextPositionBeaconAt;
     private final AtomicLong nextReliableRetryAt = new AtomicLong(RETRY_SCHEDULE_UNINITIALIZED);
+    @Setter
     private volatile boolean digipeatingEnabled;
+    /**
+     * -- SETTER --
+     * Enables standards-filtered, one-way forwarding from RF to APRS-IS.
+     */
+    @Setter
     private volatile boolean igateEnabled;
 
-    public AprsController(PacketRepository packetRepository, EventRepository eventRepository,
-                          Executor executor, Callbacks callbacks) {
+    public AprsController(PacketRepository packetRepository, EventRepository eventRepository, Callbacks callbacks) {
         this.repositories = new RepositoryAccess(packetRepository, eventRepository);
-        this.executor = executor;
         this.callbacks = callbacks;
-    }
-
-    public boolean isPositionBeaconingEnabled() {
-        return positionBeaconingEnabled;
-    }
-
-    public void setDigipeatingEnabled(boolean enabled) {
-        digipeatingEnabled = enabled;
-    }
-
-    /** Enables standards-filtered, one-way forwarding from RF to APRS-IS. */
-    public void setIgateEnabled(boolean enabled) {
-        igateEnabled = enabled;
     }
 
     /** Processes one decoded packet and associates it with a user event when possible. */
@@ -165,7 +160,7 @@ public final class AprsController {
         if (parsed != null && parsed.event != null) {
             parsed.event.internetOnly = AprsSource.RX_APRS_IS.equals(source);
         }
-        executor.execute(() -> persistIncoming(packet, packetRecord, parsed, digipeated));
+        persistIncoming(packet, packetRecord, parsed, digipeated);
     }
 
     private void persistIncoming(APRSPacket frame, AprsPacket packet, ParsedEvent parsed,
@@ -261,31 +256,27 @@ public final class AprsController {
     /** Records a transmitted packet under an existing event, or as unassociated transport data. */
     public void recordTransmission(Long eventId, APRSPacket packet, Long frequencyHz, byte[] rawAx25) {
         Transmission transmission = new Transmission(packet, frequencyHz, rawAx25);
-        executor.execute(() -> {
-            recordTransmissionNow(eventId, transmission);
-        });
+        recordTransmissionNow(eventId, transmission);
     }
 
     /** Records a packet after it is written to a verified APRS-IS session. */
     public void recordAprsIsTransmission(Long eventId, String tnc2) {
-        executor.execute(() -> {
-            try {
-                APRSPacket frame = Parser.parse(tnc2);
-                AprsPacket packet = physicalPacket(frame, AprsSource.TX_APRS_IS, null, null, tnc2);
-                if (eventId == null) {
+        try {
+            APRSPacket frame = Parser.parse(tnc2);
+            AprsPacket packet = physicalPacket(frame, AprsSource.TX_APRS_IS, null, null, tnc2);
+            if (eventId == null) {
+                repositories.insert(packet);
+            } else {
+                AprsEvent event = repositories.findById(eventId);
+                if (event == null) {
                     repositories.insert(packet);
                 } else {
-                    AprsEvent event = repositories.findById(eventId);
-                    if (event == null) {
-                        repositories.insert(packet);
-                    } else {
-                        associatePacket(event, packet);
-                    }
+                    associatePacket(event, packet);
                 }
-            } catch (Exception ignored) {
-                // The controller generated and validated this line before transmission.
             }
-        });
+        } catch (Exception ignored) {
+            // The controller generated and validated this line before transmission.
+        }
     }
 
     private void recordTransmissionNow(Long eventId, Transmission transmission) {
@@ -311,22 +302,18 @@ public final class AprsController {
 
     /** Runs due reliable-message retries and periodic beacon scheduling. */
     public void tick(long now) {
-        executor.execute(() -> {
-            boolean changed = false;
-            initializeReliableRetrySchedule();
-            long retryAt = nextReliableRetryAt.get();
-            if (retryAt != NO_RETRY_SCHEDULED && now >= retryAt) {
-                for (AprsEvent event : repositories.loadDueReliableEvents(now)) {
-                    retryOrFail(event, now);
-                    changed = true;
-                }
-                reloadReliableRetrySchedule();
+        initializeReliableRetrySchedule();
+        long retryAt = nextReliableRetryAt.get();
+        if (retryAt != NO_RETRY_SCHEDULED && now >= retryAt) {
+            for (AprsEvent event : repositories.loadDueReliableEvents(now)) {
+                retryOrFail(event, now);
             }
-            if (positionBeaconingEnabled && now >= nextPositionBeaconAt) {
-                nextPositionBeaconAt = now + BEACON_INTERVAL_MS;
-                callbacks.requestPositionBeacon();
-            }
-        });
+            reloadReliableRetrySchedule();
+        }
+        if (positionBeaconingEnabled && now >= nextPositionBeaconAt) {
+            nextPositionBeaconAt = now + BEACON_INTERVAL_MS;
+            callbacks.requestPositionBeacon();
+        }
     }
 
     private void initializeReliableRetrySchedule() {
@@ -422,20 +409,16 @@ public final class AprsController {
         persistOutgoingEvent(event, packet, frequencyHz, rawAx25);
     }
 
-    private void persistOutgoingEvent(AprsEvent event, APRSPacket frame, Long frequencyHz,
-                                      byte[] rawAx25) {
+    private void persistOutgoingEvent(AprsEvent event, APRSPacket frame, Long frequencyHz, byte[] rawAx25) {
         event.dedupKey = logicalPacketKey(frame);
         AprsPacket packet = physicalPacket(frame, AprsSource.TX_RF, frequencyHz, rawAx25);
-        executor.execute(() -> {
-            event.id = repositories.insert(event);
-            packet.eventId = event.id;
-            repositories.insert(packet);
-            includeInReliableRetrySchedule(event.nextRetryAtMs);
-        });
+        event.id = repositories.insert(event);
+        packet.eventId = event.id;
+        repositories.insert(packet);
+        includeInReliableRetrySchedule(event.nextRetryAtMs);
     }
 
-    private AprsPacket physicalPacket(APRSPacket frame, String source, Long frequencyHz,
-                                      byte[] rawAx25) {
+    private AprsPacket physicalPacket(APRSPacket frame, String source, Long frequencyHz, byte[] rawAx25) {
         return physicalPacket(frame, source, frequencyHz, rawAx25, null);
     }
 
@@ -498,8 +481,8 @@ public final class AprsController {
             return;
         }
         event.type = AprsEvent.POSITION_TYPE;
-        event.positionLat = position.getPosition().getLatitude();
-        event.positionLong = position.getPosition().getLongitude();
+        event.positionLat = Objects.requireNonNull(position.getPosition()).getLatitude();
+        event.positionLong = Objects.requireNonNull(position.getPosition()).getLongitude();
     }
 
     private void applyComment(AprsEvent event, APRSPacket packet, InformationField info,
@@ -633,8 +616,7 @@ public final class AprsController {
         } else {
             replacement.set(index, usedDigipeater(localCallsign));
         }
-        APRSPacket retransmit = new APRSPacket(packet.getSourceCall(), packet.getDestinationCall(),
-            replacement, packet.getPayload().getRawBytes());
+        APRSPacket retransmit = new APRSPacket(packet.getSourceCall(), packet.getDestinationCall(), replacement, packet.getPayload().getRawBytes());
         retransmit.setComment(packet.getComment());
         Transmission transmission = callbacks.transmitDigipeatedPacket(retransmit);
         if (transmission != null) {

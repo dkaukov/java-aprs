@@ -55,14 +55,14 @@
 
     <properties>
         <!-- Define the remote or target URL configuration for the site plugin. -->
-        <basepom.site.scm.url>scm:git:git@github.com:dkaukov/java-aprs.git</basepom.site.scm.url>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.targetJdk>11</project.build.targetJdk>
         <basepom.release.profiles>basepom.central-release</basepom.release.profiles>
         <basepom.release.push-changes>true</basepom.release.push-changes>
         <basepom.license.header>license-header.txt</basepom.license.header>
-        <junit.version>4.13.2</junit.version>
-        <lombok.version>1.18.46</lombok.version>
+        <dep.junit.version>4.13.2</dep.junit.version>
+        <dep.lombok.version>1.18.46</dep.lombok.version>
+        <dep.annotations.version>24.1.0</dep.annotations.version>
     </properties>
 
     <build>
@@ -75,7 +75,7 @@
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
-                            <version>${lombok.version}</version>
+                            <version>${dep.lombok.version}</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
@@ -95,19 +95,19 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>${lombok.version}</version>
+            <version>${dep.lombok.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.jetbrains</groupId>
             <artifactId>annotations</artifactId>
-            <version>24.1.0</version>
+            <version>${dep.annotations.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
-            <version>${junit.version}</version>
+            <version>${dep.junit.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

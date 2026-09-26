@@ -294,7 +294,7 @@ public class AprsControllerTest {
 
     @Test public void outgoingPositionCreatesEventAndPacket() {
         Fixture f = fixture();
-        APRSPacket frame = new APRSPacket("VK3ME",
+        APRSPacket frame = new APRSPacket("VK3ME", "DST",
             Collections.singletonList(new Digipeater("WIDE1-1")),
             "!3751.65S/14458.20E-Test".getBytes(StandardCharsets.US_ASCII));
 
@@ -308,7 +308,7 @@ public class AprsControllerTest {
 
     @Test public void digipeatedEchoAttachesToOutgoingPositionEvent() throws Exception {
         Fixture f = fixture();
-        APRSPacket transmitted = new APRSPacket("VK3ME",
+        APRSPacket transmitted = new APRSPacket("VK3ME", "DST",
             Collections.singletonList(new Digipeater("WIDE1-1")),
             "!3751.65S/14458.20E-Test".getBytes(StandardCharsets.US_ASCII));
         APRSPacket echoed = Parser.parse("VK3ME>" + transmitted.getDestinationCall()
@@ -413,7 +413,7 @@ public class AprsControllerTest {
         events.records.add(terminalEvent(AprsEvent.DELIVERY_FAILED));
         FakeCallbacks callbacks = new FakeCallbacks();
 
-        new AprsController(packets, events, Runnable::run, callbacks).tick(0L);
+        new AprsController(packets, events, callbacks).tick(0L);
 
         assertEquals(1, callbacks.retryCount);
         assertEquals(2, pending.transmitAttempts);
@@ -689,8 +689,7 @@ public class AprsControllerTest {
         FakePacketRepository packets = new FakePacketRepository();
         FakeEventRepository events = new FakeEventRepository();
         FakeCallbacks callbacks = new FakeCallbacks();
-        return new Fixture(packets, events, callbacks,
-            new AprsController(packets, events, Runnable::run, callbacks));
+        return new Fixture(packets, events, callbacks, new AprsController(packets, events, callbacks));
     }
 
     private APRSPacket directMessage(String from, String to, String body, String identifier) {
@@ -698,14 +697,13 @@ public class AprsControllerTest {
             MessagePacket.createMessagePayload(to, body, identifier));
     }
 
-    private APRSPacket directMessageWithPath(String from, String to, String body,
-                                              String identifier, String path) {
+    private APRSPacket directMessageWithPath(String from, String to, String body, String identifier, String path) {
         return new APRSPacket(from, "APRS", Collections.singletonList(new Digipeater(path)),
             MessagePacket.createMessagePayload(to, body, identifier));
     }
 
     private APRSPacket outgoingMessage(String from, String to, String body, String identifier) {
-        return new APRSPacket(from, Collections.singletonList(new Digipeater("WIDE1-1")),
+        return new APRSPacket(from, "DST", Collections.singletonList(new Digipeater("WIDE1-1")),
             MessagePacket.createMessagePayload(to, body, identifier));
     }
 
@@ -876,10 +874,8 @@ public class AprsControllerTest {
             if (!retrySucceeds) {
                 return null;
             }
-            APRSPacket packet = new APRSPacket(event.fromCallsign,
-                Collections.singletonList(new Digipeater("WIDE1-1")),
-                MessagePacket.createMessagePayload(event.toCallsign, event.body,
-                    event.messageIdentifier));
+            APRSPacket packet = new APRSPacket(event.fromCallsign, "DST", Collections.singletonList(new Digipeater("WIDE1-1")),
+                MessagePacket.createMessagePayload(event.toCallsign, event.body, event.messageIdentifier));
             return new AprsController.Transmission(packet, 144_390_000L, packet.toAX25Frame());
         }
 

@@ -33,7 +33,7 @@ import java.util.logging.Logger;
 
 /** Persistent APRS-IS transport for packets accepted by the controller's iGate policy. */
 public final class AprsIsClient implements AutoCloseable {
-    private static final Logger LOGGER = Logger.getLogger(AprsIsClient.class.getName());
+    private static final Logger LOG = Logger.getLogger(AprsIsClient.class.getName());
     public static final String DEFAULT_SERVER = "rotate.aprs2.net:14580";
     private static final int DEFAULT_PORT = 14580;
     private static final int MAX_PACKET_BYTES = 510;
@@ -48,6 +48,7 @@ public final class AprsIsClient implements AutoCloseable {
         "^[A-Z0-9]{3,6}(?:-[A-Z0-9]{1,2})?$");
 
     private final Object lock = new Object();
+    private final String software;
     private final String softwareVersion;
     private final IncomingPacketListener incomingPacketListener;
     private final ArrayDeque<PendingPacket> pendingPackets = new ArrayDeque<>();
@@ -65,11 +66,12 @@ public final class AprsIsClient implements AutoCloseable {
     private long pendingPacketGeneration;
     private Socket activeSocket;
 
-    public AprsIsClient(String softwareVersion) {
-        this(softwareVersion, packet -> { });
+    public AprsIsClient(String software, String softwareVersion) {
+        this(software, softwareVersion, packet -> { });
     }
 
-    public AprsIsClient(String softwareVersion, IncomingPacketListener incomingPacketListener) {
+    public AprsIsClient(String software, String softwareVersion, IncomingPacketListener incomingPacketListener) {
+        this.software = singleWord(software);
         this.softwareVersion = singleWord(softwareVersion);
         this.incomingPacketListener = incomingPacketListener;
         worker = Executors.newSingleThreadExecutor(runnable -> {
@@ -222,8 +224,8 @@ public final class AprsIsClient implements AutoCloseable {
         return hash & 0x7fff;
     }
 
-    static String loginLine(String callsign, int passcode, String softwareVersion, boolean receiveEnabled, Double latitude, Double longitude) {
-        String login = "user " + callsign + " pass " + passcode + " vers KV4PHT " + softwareVersion;
+    static String loginLine(String callsign, int passcode, String software, String softwareVersion, boolean receiveEnabled, Double latitude, Double longitude) {
+        String login = "user " + callsign + " pass " + passcode + " vers " + software + " " + softwareVersion;
         if (!receiveEnabled) {
             return login;
         }
@@ -307,11 +309,8 @@ public final class AprsIsClient implements AutoCloseable {
                 if (greeting == null) {
                     throw new IOException("APRS-IS closed before login");
                 }
-                int loginPasscode = configuration.transmitEnabled
-                    ? passcode(configuration.callsign) : -1;
-                writeLine(writer, loginLine(configuration.callsign, loginPasscode, softwareVersion,
-                    configuration.receiveEnabled, configuration.filterLatitude,
-                    configuration.filterLongitude));
+                int loginPasscode = configuration.transmitEnabled ? passcode(configuration.callsign) : -1;
+                writeLine(writer, loginLine(configuration.callsign, loginPasscode, software, softwareVersion, configuration.receiveEnabled, configuration.filterLatitude, configuration.filterLongitude));
                 awaitLogin(reader, configuration.callsign, configuration.transmitEnabled);
                 loggedIn = true;
                 logInfo("APRS-IS login accepted for " + configuration.callsign);
@@ -518,15 +517,15 @@ public final class AprsIsClient implements AutoCloseable {
     }
 
     private static void logDebug(String message) {
-        LOGGER.fine(message);
+        LOG.fine(message);
     }
 
     private static void logInfo(String message) {
-        LOGGER.info(message);
+        LOG.info(message);
     }
 
     private static void logWarning(String message, Throwable error) {
-        LOGGER.log(Level.WARNING, message, error);
+        LOG.log(Level.WARNING, message, error);
     }
 
     private static boolean isValidPacket(String packet) {

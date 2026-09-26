@@ -78,21 +78,16 @@ public class AprsIsClientTest {
         ExecutorService serverWorker = Executors.newSingleThreadExecutor();
         try (ServerSocket server = new ServerSocket(0)) {
             serverWorker.execute(() -> serveVerifiedSession(server, received, packetsReceived));
-            try (AprsIsClient client = new AprsIsClient("2.0 test")) {
+            try (AprsIsClient client = new AprsIsClient("test", "2.0 test")) {
                 assertTrue(client.setServer("127.0.0.1:" + server.getLocalPort()));
                 client.setCallsign("vk3abc-9");
                 client.setTransmitEnabled(true);
                 client.setEnabled(true);
-
-                assertTrue(client.send("VK3ABC-9", "VK3RF>APRS,qAO,VK3ABC-9:>one",
-                    callbacks::countDown));
-                assertTrue(client.send("VK3ABC-9", "VK3RF>APRS,qAO,VK3ABC-9:>two",
-                    callbacks::countDown));
-
+                assertTrue(client.send("VK3ABC-9", "VK3RF>APRS,qAO,VK3ABC-9:>one", callbacks::countDown));
+                assertTrue(client.send("VK3ABC-9", "VK3RF>APRS,qAO,VK3ABC-9:>two", callbacks::countDown));
                 assertTrue(packetsReceived.await(5, TimeUnit.SECONDS));
                 assertTrue(callbacks.await(5, TimeUnit.SECONDS));
-                assertEquals("user VK3ABC-9 pass " + AprsIsClient.passcode("VK3ABC-9")
-                    + " vers KV4PHT 2.0_test", received.get(0));
+                assertEquals("user VK3ABC-9 pass " + AprsIsClient.passcode("VK3ABC-9") + " vers test 2.0_test", received.get(0));
                 assertEquals("VK3RF>APRS,qAO,VK3ABC-9:>one", received.get(1));
                 assertEquals("VK3RF>APRS,qAO,VK3ABC-9:>two", received.get(2));
             }
@@ -102,7 +97,7 @@ public class AprsIsClientTest {
     }
 
     @Test public void disabledInvalidCallsignAndMultilinePacketsAreRejected() {
-        try (AprsIsClient client = new AprsIsClient("2.0")) {
+        try (AprsIsClient client = new AprsIsClient("test","2.0")) {
             assertFalse(client.send("VK3ABC", "VK3RF>APRS:>disabled", null));
             client.setEnabled(true);
             assertFalse(client.send("VK3ABC", "VK3RF>APRS:>receive only", null));
@@ -112,14 +107,10 @@ public class AprsIsClientTest {
     }
 
     @Test public void loginUsesAprsIsSyntax() {
-        assertEquals("user VK3ABC pass 21675 vers KV4PHT 2.0",
-            AprsIsClient.loginLine("VK3ABC", 21675, "2.0", false, null, null));
-        assertEquals("user VK3ABC pass 21675 vers KV4PHT 2.0 filter m/50",
-            AprsIsClient.loginLine("VK3ABC", 21675, "2.0", true, null, null));
-        assertEquals("user VK3ABC pass -1 vers KV4PHT 2.0 "
-                + "filter r/-37.81360/144.96310/50",
-            AprsIsClient.loginLine("VK3ABC", -1, "2.0", true,
-                -37.8136, 144.9631));
+        assertEquals("user VK3ABC pass 21675 vers test 2.0", AprsIsClient.loginLine("VK3ABC", 21675, "test", "2.0", false, null, null));
+        assertEquals("user VK3ABC pass 21675 vers test 2.0 filter m/50", AprsIsClient.loginLine("VK3ABC", 21675, "test", "2.0", true, null, null));
+        assertEquals("user VK3ABC pass -1 vers test 2.0 filter r/-37.81360/144.96310/50",
+            AprsIsClient.loginLine("VK3ABC", -1, "test", "2.0", true, -37.8136, 144.9631));
     }
 
     @Test public void receiveModeRequestsNearbyFeedAndDeliversOnlyPackets() throws Exception {
@@ -128,7 +119,7 @@ public class AprsIsClientTest {
         ExecutorService serverWorker = Executors.newSingleThreadExecutor();
         try (ServerSocket server = new ServerSocket(0)) {
             serverWorker.execute(() -> serveIncomingPacket(server, received));
-            try (AprsIsClient client = new AprsIsClient("2.0", packet -> {
+            try (AprsIsClient client = new AprsIsClient("test", "2.0", packet -> {
                 received.add(packet);
                 packetDelivered.countDown();
             })) {
@@ -136,10 +127,8 @@ public class AprsIsClientTest {
                 client.setCallsign("VK3ABC");
                 client.setReceiveEnabled(true);
                 client.setEnabled(true);
-
                 assertTrue(packetDelivered.await(5, TimeUnit.SECONDS));
-                assertEquals("user VK3ABC pass -1 vers KV4PHT 2.0 filter m/50",
-                    received.get(0));
+                assertEquals("user VK3ABC pass -1 vers test 2.0 filter m/50", received.get(0));
                 assertEquals("VK3RF>APRS,qAO,VK3ABC:>nearby", received.get(1));
             }
         } finally {
