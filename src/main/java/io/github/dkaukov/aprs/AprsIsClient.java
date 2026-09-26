@@ -10,24 +10,6 @@
  * See the GNU General Public License for more details.
  */
 
-/*
- * kv4p HT (see http://kv4p.com)
- * Copyright (C) 2024 Vance Vagell
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
-
 package io.github.dkaukov.aprs;
 
 import java.io.BufferedReader;
@@ -240,10 +222,8 @@ public final class AprsIsClient implements AutoCloseable {
         return hash & 0x7fff;
     }
 
-    static String loginLine(String callsign, int passcode, String softwareVersion,
-                            boolean receiveEnabled, Double latitude, Double longitude) {
-        String login = "user " + callsign + " pass " + passcode
-            + " vers KV4PHT " + softwareVersion;
+    static String loginLine(String callsign, int passcode, String softwareVersion, boolean receiveEnabled, Double latitude, Double longitude) {
+        String login = "user " + callsign + " pass " + passcode + " vers KV4PHT " + softwareVersion;
         if (!receiveEnabled) {
             return login;
         }
