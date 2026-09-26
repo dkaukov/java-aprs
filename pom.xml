@@ -61,6 +61,7 @@
         <basepom.release.profiles>basepom.central-release</basepom.release.profiles>
         <basepom.release.push-changes>true</basepom.release.push-changes>
         <basepom.license.header>license-header.txt</basepom.license.header>
+        <dep.plugin.central-publishing.version>0.11.0</dep.plugin.central-publishing.version>
         <dep.junit.version>4.13.2</dep.junit.version>
         <dep.lombok.version>1.18.46</dep.lombok.version>
         <dep.annotations.version>24.1.0</dep.annotations.version>
