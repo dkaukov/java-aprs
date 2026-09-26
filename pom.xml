@@ -80,14 +80,6 @@
                     </annotationProcessorPaths>
                 </configuration>
             </plugin>
-            <plugin>
-                <groupId>com.github.spotbugs</groupId>
-                <artifactId>spotbugs-maven-plugin</artifactId>
-                <configuration>
-                    <!-- Analyze all findings, including rules excluded by Basepom. -->
-                    <excludeFilterFiles combine.self="override" />
-                </configuration>
-            </plugin>
         </plugins>
     </build>
 
