@@ -1,5 +1,7 @@
 # java-aprs
 
+[![Java CI with Maven](https://github.com/dkaukov/java-aprs/actions/workflows/maven.yml/badge.svg)](https://github.com/dkaukov/java-aprs/actions/workflows/maven.yml)
+
 `java-aprs` is a platform-independent Java 8 APRS library. It parses APRS/TNC2 and
 AX.25 UI frames, builds AX.25 frames, aggregates packet observations into events, and
 provides controller and APRS-IS integration points. It does not require Android or an
@@ -90,7 +92,7 @@ controller. Repository calls are synchronous, so implementations may use an in-m
 store, JDBC, Room, or another persistence layer.
 
 Callbacks describe operations the application performs: obtaining the local callsign,
-showing a newly created addressed message, transmitting ACKs/retries/digipeats, making
+handling a newly created addressed message, transmitting ACKs/retries/digipeats, making
 position beacons, and forwarding an accepted iGate line. A retry or digipeat callback
 returns a `Transmission` only when it actually transmitted; `null` means no
 transmission occurred.

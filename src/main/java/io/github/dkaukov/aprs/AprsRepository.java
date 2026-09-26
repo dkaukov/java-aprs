@@ -53,7 +53,7 @@ public interface AprsRepository {
     /**
      * Loads all reliable messages awaiting a scheduled retry.
      *
-     * @return immutable pending events, normally as a caller-owned list snapshot
+     * @return pending immutable events; later repository mutations must not affect iteration
      */
     List<AprsEvent> loadPendingReliableEvents();
 
