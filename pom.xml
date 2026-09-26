@@ -56,6 +56,8 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.systemJdk>17</project.build.systemJdk>
         <project.build.targetJdk>8</project.build.targetJdk>
+        <!-- BasePOM 63 uses 0.7.0, which cannot parse Central's deployment warnings. -->
+        <dep.plugin.central-publishing.version>0.11.0</dep.plugin.central-publishing.version>
         <basepom.release.profiles>basepom.central-release</basepom.release.profiles>
         <basepom.release.push-changes>true</basepom.release.push-changes>
         <basepom.license.header>license-header.txt</basepom.license.header>
