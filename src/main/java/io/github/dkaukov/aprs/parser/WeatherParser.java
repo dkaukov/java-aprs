@@ -29,8 +29,8 @@
  * along with AVRS; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
  * USA
- * 
- * Large segments of this code were taken from Matti Aarnio at 
+ *
+ * Large segments of this code were taken from Matti Aarnio at
  * http://repo.ham.fi/websvn/java-aprs-fap/
  * I appreciate the base work Matti did - JohnG
  */
@@ -127,7 +127,9 @@ public class WeatherParser {
         if (matcher.find()) {
             try {
                 double hum = Double.parseDouble(matcher.group(1));
-                if (hum == 0) hum = 100;
+                if (hum == 0) {
+                    hum = 100;
+                }
                 wf.setHumidity(hum);
             } catch (NumberFormatException nfe) {
                 // ignore

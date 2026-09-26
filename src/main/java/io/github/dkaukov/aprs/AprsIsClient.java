@@ -106,10 +106,14 @@ public final class AprsIsClient implements AutoCloseable {
     /** Enables or disables the persistent connection. Disabling also discards queued packets. */
     public void setEnabled(boolean enabled) {
         synchronized (lock) {
-            if (this.enabled == enabled) return;
+            if (this.enabled == enabled) {
+                return;
+            }
             this.enabled = enabled;
             configurationGeneration++;
-            if (!enabled) clearPendingPacketsLocked();
+            if (!enabled) {
+                clearPendingPacketsLocked();
+            }
             disconnectLocked();
             lock.notifyAll();
         }
@@ -118,7 +122,9 @@ public final class AprsIsClient implements AutoCloseable {
     /** Selects the APRSdroid-compatible nearby feed and whether received packets are exposed. */
     public void setReceiveEnabled(boolean enabled) {
         synchronized (lock) {
-            if (receiveEnabled == enabled) return;
+            if (receiveEnabled == enabled) {
+                return;
+            }
             receiveEnabled = enabled;
             configurationGeneration++;
             disconnectLocked();
@@ -129,10 +135,14 @@ public final class AprsIsClient implements AutoCloseable {
     /** Selects whether this session must authenticate for APRS-IS packet injection. */
     public void setTransmitEnabled(boolean enabled) {
         synchronized (lock) {
-            if (transmitEnabled == enabled) return;
+            if (transmitEnabled == enabled) {
+                return;
+            }
             transmitEnabled = enabled;
             configurationGeneration++;
-            if (!enabled) clearPendingPacketsLocked();
+            if (!enabled) {
+                clearPendingPacketsLocked();
+            }
             disconnectLocked();
             lock.notifyAll();
         }
@@ -144,7 +154,9 @@ public final class AprsIsClient implements AutoCloseable {
         Double nextLatitude = valid ? latitude : null;
         Double nextLongitude = valid ? longitude : null;
         synchronized (lock) {
-            if (sameFilterLocation(nextLatitude, nextLongitude)) return;
+            if (sameFilterLocation(nextLatitude, nextLongitude)) {
+                return;
+            }
             filterLatitude = nextLatitude;
             filterLongitude = nextLongitude;
             configurationGeneration++;
@@ -156,9 +168,13 @@ public final class AprsIsClient implements AutoCloseable {
     /** Changes the APRS-IS host and optional port, reconnecting if necessary. */
     public boolean setServer(String value) {
         ServerAddress parsed = parseServer(value);
-        if (parsed == null) return false;
+        if (parsed == null) {
+            return false;
+        }
         synchronized (lock) {
-            if (parsed.normalized.equals(server.normalized)) return true;
+            if (parsed.normalized.equals(server.normalized)) {
+                return true;
+            }
             server = parsed;
             configurationGeneration++;
             disconnectLocked();
@@ -171,7 +187,9 @@ public final class AprsIsClient implements AutoCloseable {
     public void setCallsign(String value) {
         String normalized = normalizeCallsign(value);
         synchronized (lock) {
-            if (normalized.equals(callsign)) return;
+            if (normalized.equals(callsign)) {
+                return;
+            }
             callsign = normalized;
             configurationGeneration++;
             clearPendingPacketsLocked();
@@ -215,7 +233,9 @@ public final class AprsIsClient implements AutoCloseable {
         int hash = 0x73e2;
         for (int i = 0; i < baseCall.length(); i += 2) {
             hash ^= baseCall.charAt(i) << 8;
-            if (i + 1 < baseCall.length()) hash ^= baseCall.charAt(i + 1);
+            if (i + 1 < baseCall.length()) {
+                hash ^= baseCall.charAt(i + 1);
+            }
         }
         return hash & 0x7fff;
     }
@@ -224,7 +244,9 @@ public final class AprsIsClient implements AutoCloseable {
                             boolean receiveEnabled, Double latitude, Double longitude) {
         String login = "user " + callsign + " pass " + passcode
             + " vers KV4PHT " + softwareVersion;
-        if (!receiveEnabled) return login;
+        if (!receiveEnabled) {
+            return login;
+        }
         if (isValidLocation(latitude, longitude)) {
             return login + String.format(Locale.US, " filter r/%.5f/%.5f/50",
                 latitude, longitude);
@@ -236,7 +258,9 @@ public final class AprsIsClient implements AutoCloseable {
         long reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
         while (true) {
             ConnectionConfiguration configuration = awaitConfiguration();
-            if (configuration == null) return;
+            if (configuration == null) {
+                return;
+            }
             long queuedAtSessionStart = pendingPacketGeneration();
             boolean loggedIn = runSession(configuration);
             if (loggedIn) {
@@ -247,7 +271,9 @@ public final class AprsIsClient implements AutoCloseable {
                 logInfo("Reconnecting to APRS-IS in " + reconnectDelay + " ms");
             }
             if (!awaitReconnect(reconnectDelay, configuration.generation,
-                    queuedAtSessionStart)) return;
+                queuedAtSessionStart)) {
+                return;
+            }
             if (!loggedIn) {
                 reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY_MS);
             }
@@ -282,7 +308,9 @@ public final class AprsIsClient implements AutoCloseable {
                 + configuration.transmitEnabled + ", filter="
                 + filterDescription(configuration));
             synchronized (lock) {
-                if (!isCurrent(configuration)) return false;
+                if (!isCurrent(configuration)) {
+                    return false;
+                }
                 activeSocket = socket;
             }
             socket.connect(new InetSocketAddress(configuration.server.host,
@@ -296,7 +324,9 @@ public final class AprsIsClient implements AutoCloseable {
                  BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
                     socket.getOutputStream(), StandardCharsets.ISO_8859_1))) {
                 String greeting = reader.readLine();
-                if (greeting == null) throw new IOException("APRS-IS closed before login");
+                if (greeting == null) {
+                    throw new IOException("APRS-IS closed before login");
+                }
                 int loginPasscode = configuration.transmitEnabled
                     ? passcode(configuration.callsign) : -1;
                 writeLine(writer, loginLine(configuration.callsign, loginPasscode, softwareVersion,
@@ -324,11 +354,15 @@ public final class AprsIsClient implements AutoCloseable {
         String expected = "# LOGRESP " + expectedCallsign.toUpperCase(Locale.ROOT) + " ";
         while (true) {
             String line = reader.readLine();
-            if (line == null) throw new IOException("APRS-IS closed during login");
+            if (line == null) {
+                throw new IOException("APRS-IS closed during login");
+            }
             String normalized = line.toUpperCase(Locale.ROOT);
             if (normalized.startsWith(expected)) {
                 if (normalized.contains(" VERIFIED") || (!requireVerified
-                        && normalized.contains(" UNVERIFIED"))) return;
+                    && normalized.contains(" UNVERIFIED"))) {
+                    return;
+                }
                 throw new IOException("APRS-IS login was not verified");
             }
             if (normalized.startsWith("# LOGRESP ")) {
@@ -344,7 +378,9 @@ public final class AprsIsClient implements AutoCloseable {
                               ConnectionConfiguration configuration) throws IOException {
         boolean receivingLogged = false;
         while (isCurrent(configuration)) {
-            if (transmitPendingPacket(writer, configuration)) continue;
+            if (transmitPendingPacket(writer, configuration)) {
+                continue;
+            }
             receivingLogged = receiveIncomingPacket(reader, configuration, receivingLogged);
         }
     }
@@ -356,8 +392,12 @@ public final class AprsIsClient implements AutoCloseable {
         synchronized (lock) {
             pending = pendingPackets.peekFirst();
         }
-        if (pending == null) return false;
-        if (!isCurrentTransmitSession(configuration)) return true;
+        if (pending == null) {
+            return false;
+        }
+        if (!isCurrentTransmitSession(configuration)) {
+            return true;
+        }
         writeLine(writer, pending.packet);
         if (removeDeliveredPacket(configuration, pending)) {
             runSuccessCallback(pending.onSuccess);
@@ -370,10 +410,14 @@ public final class AprsIsClient implements AutoCloseable {
                                           boolean receivingLogged) throws IOException {
         try {
             String line = reader.readLine();
-            if (line == null) throw new IOException("APRS-IS connection closed");
+            if (line == null) {
+                throw new IOException("APRS-IS connection closed");
+            }
             if (configuration.receiveEnabled && !line.startsWith("#") && isValidPacket(line)) {
                 deliverIncomingPacket(line);
-                if (!receivingLogged) logInfo("Receiving APRS-IS packets");
+                if (!receivingLogged) {
+                    logInfo("Receiving APRS-IS packets");
+                }
                 return true;
             }
         } catch (SocketTimeoutException ignored) {
@@ -420,7 +464,9 @@ public final class AprsIsClient implements AutoCloseable {
             while (!closed && configurationGeneration == sessionGeneration
                     && pendingPacketGeneration == queuedPacketGeneration) {
                 long remainingMs = deadlineMs - System.currentTimeMillis();
-                if (remainingMs <= 0) break;
+                if (remainingMs <= 0) {
+                    break;
+                }
                 try {
                     lock.wait(remainingMs);
                 } catch (InterruptedException e) {
@@ -439,17 +485,23 @@ public final class AprsIsClient implements AutoCloseable {
     }
 
     private void disconnectLocked() {
-        if (activeSocket != null) closeQuietly(activeSocket);
+        if (activeSocket != null) {
+            closeQuietly(activeSocket);
+        }
     }
 
     private void clearPendingPacketsLocked() {
-        if (pendingPackets.isEmpty()) return;
+        if (pendingPackets.isEmpty()) {
+            return;
+        }
         pendingPackets.clear();
         pendingPacketGeneration++;
     }
 
     private static void runSuccessCallback(Runnable callback) {
-        if (callback == null) return;
+        if (callback == null) {
+            return;
+        }
         try {
             callback.run();
         } catch (RuntimeException ignored) {
@@ -458,7 +510,9 @@ public final class AprsIsClient implements AutoCloseable {
     }
 
     private void deliverIncomingPacket(String packet) {
-        if (incomingPacketListener == null) return;
+        if (incomingPacketListener == null) {
+            return;
+        }
         try {
             incomingPacketListener.onPacket(packet);
         } catch (RuntimeException ignored) {
@@ -473,7 +527,9 @@ public final class AprsIsClient implements AutoCloseable {
     }
 
     private static String filterDescription(ConnectionConfiguration configuration) {
-        if (!configuration.receiveEnabled) return "none";
+        if (!configuration.receiveEnabled) {
+            return "none";
+        }
         if (isValidLocation(configuration.filterLatitude, configuration.filterLongitude)) {
             return String.format(Locale.US, "r/%.5f/%.5f/50",
                 configuration.filterLatitude, configuration.filterLongitude);
@@ -499,14 +555,18 @@ public final class AprsIsClient implements AutoCloseable {
     }
 
     private static String normalizeCallsign(String value) {
-        if (value == null) return "";
+        if (value == null) {
+            return "";
+        }
         String normalized = value.trim().toUpperCase(Locale.ROOT);
         return normalized.endsWith("-0")
             ? normalized.substring(0, normalized.length() - 2) : normalized;
     }
 
     private static String singleWord(String value) {
-        if (value == null || value.trim().isEmpty()) return "unknown";
+        if (value == null || value.trim().isEmpty()) {
+            return "unknown";
+        }
         return value.trim().replaceAll("\\s+", "_");
     }
 
@@ -551,7 +611,9 @@ public final class AprsIsClient implements AutoCloseable {
                 return null;
             }
             int port = uri.getPort() < 0 ? DEFAULT_PORT : uri.getPort();
-            if (port < 1 || port > 65_535) return null;
+            if (port < 1 || port > 65_535) {
+                return null;
+            }
             String host = uri.getHost();
             if (host.startsWith("[") && host.endsWith("]")) {
                 host = host.substring(1, host.length() - 1);

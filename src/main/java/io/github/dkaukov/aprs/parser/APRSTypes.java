@@ -38,21 +38,21 @@ package io.github.dkaukov.aprs.parser;
 
 public enum APRSTypes {
     T_UNSPECIFIED,
-	T_TIMESTAMP,
-	T_POSITION,
-	T_WX,
-	T_THIRDPARTY,
-	T_QUERY,
-	T_OBJECT,
-	T_ITEM,
-	T_NORMAL,
-	T_KILL,
-	T_STATUS,
-	T_STATCAPA,
-	T_TELEMETRY,
-	T_USERDEF,
-	T_MESSAGE,
-	T_NWS;  // Used on fap.getSubtype()
+    T_TIMESTAMP,
+    T_POSITION,
+    T_WX,
+    T_THIRDPARTY,
+    T_QUERY,
+    T_OBJECT,
+    T_ITEM,
+    T_NORMAL,
+    T_KILL,
+    T_STATUS,
+    T_STATCAPA,
+    T_TELEMETRY,
+    T_USERDEF,
+    T_MESSAGE,
+    T_NWS;  // Used on fap.getSubtype()
 
-	;
+    ;
 }

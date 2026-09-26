@@ -70,9 +70,9 @@ public final class APRSPacket implements Serializable {
     }
 
 
-	public static final Set<String> Q_CONSTRUCTS = Set.of(
+    public static final Set<String> Q_CONSTRUCTS = Set.of(
         "qac", "qax", "qau", "qao", "qas", "qar", "qaz", "qai");
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
     public static final String KV4P_HT_VENDOR_TOCALL = "APKVPA";
 
     private final Date receivedTimestamp;
@@ -109,6 +109,8 @@ public final class APRSPacket implements Serializable {
     @Setter
     private boolean hasFault;
 
+    @Getter
+    @Setter
     private String comment;
 
     static final String REGEX_PATH_ALIASES = "^(WIDE|TRACE|RELAY)\\d*$";
@@ -117,7 +119,7 @@ public final class APRSPacket implements Serializable {
         receivedTimestamp = new Date(System.currentTimeMillis());
         this.sourceCall = source.toUpperCase();
         this.destinationCall = destination.toUpperCase();
-		this.digipeaters = Optional.ofNullable(digipeaters).orElse(List.of(new Digipeater("TCPIP*")))
+        this.digipeaters = Optional.ofNullable(digipeaters).orElse(List.of(new Digipeater("TCPIP*")))
             .stream().map(Digipeater::copy).collect(Collectors.toCollection(ArrayList::new));
         this.dti = (char) payload[0];
         this.payload = dti == ':' ? new MessagePacket(payload, destinationCall)
@@ -154,19 +156,19 @@ public final class APRSPacket implements Serializable {
         }
     }
 
-	public String getIgate() {
-		// I'm not sure if I'm treating these correctly (poor understanding of the
-		// Q-constructs on my part).  For now, I'm saying that call sign AFTER a
-		// q-construct is the I-gate.
-		for (int i = 0; i < digipeaters.size() - 1; i++) {
+    public String getIgate() {
+        // I'm not sure if I'm treating these correctly (poor understanding of the
+        // Q-constructs on my part).  For now, I'm saying that call sign AFTER a
+        // q-construct is the I-gate.
+        for (int i = 0; i < digipeaters.size() - 1; i++) {
             if (Q_CONSTRUCTS.contains(digipeaters.get(i).getCallsign().toLowerCase())) {
-				return digipeaters.get(i + 1).toString();
-			}
-		}
-		return "";
-	}
+                return digipeaters.get(i + 1).toString();
+            }
+        }
+        return "";
+    }
 
-	/**
+    /**
      * @return the last digipeater in the path marked as used (with '*') or null.
      */
     public String getLastUsedDigi() {
@@ -203,14 +205,6 @@ public final class APRSPacket implements Serializable {
         return (this.hasFault || payload.hasFault());
     }
 
-    public final void setComment(String comment) {
-        this.comment = comment;
-    }
-
-    public final String getComment() {
-        return this.comment;
-    }
-
     @Override
     public @NotNull String toString() {
         return String.format(
@@ -218,35 +212,35 @@ public final class APRSPacket implements Serializable {
             sourceCall,
             destinationCall,
             getDigiString(),
-			payload
+            payload
         );
     }
 
-	public byte[] toAX25Frame() throws IllegalArgumentException {
-		ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-		// Destination address (with * to mark end of first address)
-		byte[] dest = new Digipeater(destinationCall + "*").toAX25();
-		byteArrayOutputStream.write(dest, 0, dest.length);
-		// Source address
-		byte[] src = new Digipeater(sourceCall).toAX25();
-		if (digipeaters.isEmpty()) {
-			src[6] |= 0x01; // Mark as last address if no digipeaters
-		}
-		byteArrayOutputStream.write(src, 0, src.length);
-		// Digipeater path
-		for (int i = 0; i < digipeaters.size(); i++) {
-			byte[] digi = digipeaters.get(i).toAX25();
-			if (i == digipeaters.size() - 1) {
-				digi[6] |= 0x01; // Mark last digipeater
-			}
-			byteArrayOutputStream.write(digi, 0, 7); // AX.25 address is always 7 bytes
-		}
-		// Control (0x03 = UI-frame), PID (0xF0 = no layer 3 protocol)
-		byteArrayOutputStream.write(0x03);
-		byteArrayOutputStream.write(0xF0);
-		// Payload
-		byte[] payload = this.payload.getRawBytes();
-		byteArrayOutputStream.write(payload, 0, payload.length);
-		return byteArrayOutputStream.toByteArray();
-	}
+    public byte[] toAX25Frame() throws IllegalArgumentException {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        // Destination address (with * to mark end of first address)
+        byte[] dest = new Digipeater(destinationCall + "*").toAX25();
+        byteArrayOutputStream.write(dest, 0, dest.length);
+        // Source address
+        byte[] src = new Digipeater(sourceCall).toAX25();
+        if (digipeaters.isEmpty()) {
+            src[6] |= 0x01; // Mark as last address if no digipeaters
+        }
+        byteArrayOutputStream.write(src, 0, src.length);
+        // Digipeater path
+        for (int i = 0; i < digipeaters.size(); i++) {
+            byte[] digi = digipeaters.get(i).toAX25();
+            if (i == digipeaters.size() - 1) {
+                digi[6] |= 0x01; // Mark last digipeater
+            }
+            byteArrayOutputStream.write(digi, 0, 7); // AX.25 address is always 7 bytes
+        }
+        // Control (0x03 = UI-frame), PID (0xF0 = no layer 3 protocol)
+        byteArrayOutputStream.write(0x03);
+        byteArrayOutputStream.write(0xF0);
+        // Payload
+        byte[] payload = this.payload.getRawBytes();
+        byteArrayOutputStream.write(payload, 0, payload.length);
+        return byteArrayOutputStream.toByteArray();
+    }
 }

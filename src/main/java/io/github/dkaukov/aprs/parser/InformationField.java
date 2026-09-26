@@ -39,24 +39,24 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 
+ *
  * @author johng
  *  This class represents the "payload" of a TNC2 style AX25 packet, stripped of the source call,
- *  destination call, and digi VIAs.  Note this class is abstract:  only subclasses of it may be 
+ *  destination call, and digi VIAs.  Note this class is abstract:  only subclasses of it may be
  *  instantiated.  Per the APRS spec, these classes include Position, Direction Finding, Objects
  *  and Items, Weather, Telemetry, Messages, Bulletins, Annoucements, Queries, Responses, Statuses,
  *  and User-defined Others.
  */
 public class InformationField implements Serializable {
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
     private long createTimestamp = System.currentTimeMillis();
-	private char dataTypeIdentifier;
+    private char dataTypeIdentifier;
     protected byte[] rawBytes;
-	protected boolean hasFault = false;
+    protected boolean hasFault = false;
     protected boolean canMessage = false;
     Map<APRSTypes,APRSData> dataFields = new HashMap<>();
     DataExtension extension = null;
-	protected String comment = "";
+    protected String comment = "";
 
     protected InformationField(InformationField source) {
         dataTypeIdentifier = source.dataTypeIdentifier;
@@ -76,7 +76,7 @@ public class InformationField implements Serializable {
 
     public InformationField() {
     }
-    
+
     public InformationField( byte[] rawBytes ) {
         if ( rawBytes.length < 1 ) {
             System.err.println("Parse error:  zero length information field");
@@ -85,24 +85,24 @@ public class InformationField implements Serializable {
         this.dataTypeIdentifier = (char)rawBytes[0];
         this.dataFields = new HashMap<>();
         switch ( dataTypeIdentifier ) {
-       	case '@' :
-        	case '=' :
-        	case '\'':
-        	case ':' : this.canMessage = true; break;
+           case '@' :
+            case '=' :
+            case '\'':
+            case ':' : this.canMessage = true; break;
             default: this.canMessage = false; break;
         }
     }
-    
-    
-    /** 
+
+
+    /**
      * @return char
      */
     public char getDataTypeIdentifier() {
         return dataTypeIdentifier;
     }
 
-    
-    /** 
+
+    /**
      * @param dti
      */
     public void setDataTypeIdentifier(char dti) {
@@ -113,14 +113,15 @@ public class InformationField implements Serializable {
      * @return the rawBytes
      */
     public byte[] getRawBytes() {
-	    if (rawBytes != null)
-		    return rawBytes.clone();
-	    else
-		    return toString().getBytes(StandardCharsets.ISO_8859_1);
+        if (rawBytes != null) {
+            return rawBytes.clone();
+        } else {
+            return toString().getBytes(StandardCharsets.ISO_8859_1);
+        }
     }
-    
-    
-    /** 
+
+
+    /**
      * @param start
      * @param end
      * @return byte[]
@@ -130,16 +131,16 @@ public class InformationField implements Serializable {
         System.arraycopy(getRawBytes(), start, returnArray, 0, end-start);
         return returnArray;
     }
-    
-	/**
-	 * @return the comment string which was embedded in the packet
-	 */
+
+    /**
+     * @return the comment string which was embedded in the packet
+     */
     public String getComment() {
         return comment;
     }
-    
-    
-    /** 
+
+
+    /**
      * @return String
      */
     @Override
@@ -156,44 +157,44 @@ public class InformationField implements Serializable {
 
         return sb.toString();
     }
-	/**
-	 * @return the hasFault
-	 */
-	public boolean hasFault() {
+    /**
+     * @return the hasFault
+     */
+    public boolean hasFault() {
         boolean faultFound = this.hasFault;
         for ( APRSData data : dataFields.values() )  {
             faultFound = faultFound | data.hasFault();
         }
-		return faultFound;
-	}
+        return faultFound;
+    }
 
-	/**
-	 * @return the extension
-	 */
-	public final DataExtension getExtension() {
-		return extension == null ? null : extension.copy();
-	}
+    /**
+     * @return the extension
+     */
+    public final DataExtension getExtension() {
+        return extension == null ? null : extension.copy();
+    }
 
-    
-    /** 
+
+    /**
      * @return long
      */
     public final long getCreateTimestamp() {
         return this.createTimestamp;
     }
 
-	
-    /** 
+
+    /**
      * @return Mapping of APRSTypes to APRSData
      */
     public Map<APRSTypes,APRSData> getAprsData() {
-		Map<APRSTypes, APRSData> snapshot = new HashMap<>();
+        Map<APRSTypes, APRSData> snapshot = new HashMap<>();
         dataFields.forEach((type, value) -> snapshot.put(type, value.copy()));
         return java.util.Collections.unmodifiableMap(snapshot);
-	}
+    }
 
-    
-    /** 
+
+    /**
      * @param t
      * @return APRSData
      */
@@ -204,27 +205,29 @@ public class InformationField implements Serializable {
         return null;
     }
 
-	
-    /** 
+
+    /**
      * @param type
      * @param data
      */
     public void addAprsData(APRSTypes type, APRSData data) {
-		dataFields.put(type, data.copy());
-	}
+        dataFields.put(type, data.copy());
+    }
 
-    
-    /** 
+
+    /**
      * @param t
      * @return boolean
      */
     public boolean containsType(APRSTypes t) {
-        if ( dataFields.containsKey(t) ) return true;
+        if (dataFields.containsKey(t)) {
+            return true;
+        }
         return false;
     }
 
-    
-    /** 
+
+    /**
      * @return Set of APRSTypes
      */
     public Set<APRSTypes> getTypes() {

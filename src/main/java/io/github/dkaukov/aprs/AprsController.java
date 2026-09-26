@@ -160,7 +160,9 @@ public final class AprsController {
 
     /** Parses and displays one APRS-IS line without making it eligible for RF transmission. */
     public void handleAprsIsPacket(String tnc2) {
-        if (tnc2 == null || tnc2.trim().isEmpty()) return;
+        if (tnc2 == null || tnc2.trim().isEmpty()) {
+            return;
+        }
         try {
             handleDecoded(Parser.parse(tnc2), AprsSource.RX_APRS_IS, null, null, tnc2);
         } catch (Exception ignored) {
@@ -171,7 +173,9 @@ public final class AprsController {
     private void handleDecoded(APRSPacket packet, String source, Long frequencyHz,
                                byte[] rawAx25, String rawTnc2) {
         boolean receivedFromRf = AprsSource.RX_RF.equals(source);
-        if (receivedFromRf && isRecentlyDigipeated(packet)) return;
+        if (receivedFromRf && isRecentlyDigipeated(packet)) {
+            return;
+        }
         Transmission digipeated = receivedFromRf ? maybeDigipeat(packet) : null;
         AprsPacket packetRecord = physicalPacket(packet, source, frequencyHz, rawAx25, rawTnc2);
         PacketContext context = unwrap(packet);
@@ -201,7 +205,9 @@ public final class AprsController {
         if (parsed.acknowledgement || parsed.rejection) {
             return persistDeliveryResponse(packet, parsed);
         }
-        if (parsed.event != null) return persistEvent(packet, parsed.event);
+        if (parsed.event != null) {
+            return persistEvent(packet, parsed.event);
+        }
         repositories.insert(packet);
         return null;
     }
@@ -257,8 +263,12 @@ public final class AprsController {
     private void notifyAndAcknowledge(AprsEvent event, boolean notifyUser, String source) {
         String callsign = callbacks.getCallsign();
         if (callsign == null || event.toCallsign == null
-                || !event.toCallsign.trim().equalsIgnoreCase(callsign.trim())) return;
-        if (notifyUser) callbacks.showNotification(event.fromCallsign + " messaged you", event.body);
+            || !event.toCallsign.trim().equalsIgnoreCase(callsign.trim())) {
+            return;
+        }
+        if (notifyUser) {
+            callbacks.showNotification(event.fromCallsign + " messaged you", event.body);
+        }
         if (AprsSource.RX_RF.equals(source) && event.messageIdentifier != null
                 && !event.messageIdentifier.trim().isEmpty()) {
             callbacks.sendAcknowledgement(event.fromCallsign.toUpperCase(Locale.ROOT),
@@ -284,8 +294,11 @@ public final class AprsController {
                     repositories.insert(packet);
                 } else {
                     AprsEvent event = repositories.findById(eventId);
-                    if (event == null) repositories.insert(packet);
-                    else associatePacket(event, packet);
+                    if (event == null) {
+                        repositories.insert(packet);
+                    } else {
+                        associatePacket(event, packet);
+                    }
                 }
             } catch (Exception ignored) {
                 // The controller generated and validated this line before transmission.
@@ -346,7 +359,9 @@ public final class AprsController {
     }
 
     private void includeInReliableRetrySchedule(Long retryAt) {
-        if (retryAt == null) return;
+        if (retryAt == null) {
+            return;
+        }
         nextReliableRetryAt.updateAndGet(current -> current == RETRY_SCHEDULE_UNINITIALIZED
             ? current : Math.min(current, retryAt));
     }
@@ -402,7 +417,9 @@ public final class AprsController {
     }
 
     public static boolean requiresAcknowledgement(String destination) {
-        if (destination == null) return false;
+        if (destination == null) {
+            return false;
+        }
         String normalized = destination.trim().toUpperCase(Locale.ROOT);
         return !normalized.startsWith("BLN") && !normalized.equals("ALL")
             && !normalized.equals("QST") && !normalized.equals("CQ");
@@ -479,10 +496,14 @@ public final class AprsController {
         StationCapabilitiesField capabilities = (StationCapabilitiesField)
             info.getAprsData(APRSTypes.T_STATCAPA);
         applyPosition(event, position);
-        if (position == null && object != null) applyPosition(event, object.getPosition());
+        if (position == null && object != null) {
+            applyPosition(event, object.getPosition());
+        }
         applyComment(event, packet, info, position, object, weather);
         applyPayload(event, packet, info, object, weather, status, capabilities);
-        if (packet.hasFault()) return null;
+        if (packet.hasFault()) {
+            return null;
+        }
         if (event.type == AprsEvent.UNKNOWN_TYPE) {
             event.comment = "Raw: " + new String(info.getRawBytes(), StandardCharsets.UTF_8);
         }
@@ -491,7 +512,9 @@ public final class AprsController {
     }
 
     private void applyPosition(AprsEvent event, PositionField position) {
-        if (position == null) return;
+        if (position == null) {
+            return;
+        }
         event.type = AprsEvent.POSITION_TYPE;
         event.positionLat = position.getPosition().getLatitude();
         event.positionLong = position.getPosition().getLongitude();
@@ -516,10 +539,18 @@ public final class AprsController {
             applyWeather(event, weather);
             return;
         }
-        if (info.getDataTypeIdentifier() == ';') applyObject(event, object);
-        if (info.getDataTypeIdentifier() == ':') applyMessage(event, packet, info);
-        if (status != null) applyStatus(event, status);
-        if (capabilities != null) applyCapabilities(event, capabilities);
+        if (info.getDataTypeIdentifier() == ';') {
+            applyObject(event, object);
+        }
+        if (info.getDataTypeIdentifier() == ':') {
+            applyMessage(event, packet, info);
+        }
+        if (status != null) {
+            applyStatus(event, status);
+        }
+        if (capabilities != null) {
+            applyCapabilities(event, capabilities);
+        }
     }
 
     private void applyWeather(AprsEvent event, WeatherField weather) {
@@ -535,7 +566,9 @@ public final class AprsController {
 
     private void applyObject(AprsEvent event, ObjectField object) {
         event.type = AprsEvent.OBJECT_TYPE;
-        if (object != null) event.objectName = object.getObjectName();
+        if (object != null) {
+            event.objectName = object.getObjectName();
+        }
     }
 
     private void applyMessage(AprsEvent event, APRSPacket packet, InformationField info) {
@@ -586,22 +619,32 @@ public final class AprsController {
     private Transmission maybeDigipeat(APRSPacket packet) {
         String localCallsign = callbacks.getCallsign();
         if (!digipeatingEnabled || localCallsign == null || localCallsign.trim().isEmpty()
-                || packet == null || packet.getPayload() == null || packet.hasFault()) return null;
+            || packet == null || packet.getPayload() == null || packet.hasFault()) {
+            return null;
+        }
         String key = logicalPacketKey(packet);
         long now = System.currentTimeMillis();
         pruneDigipeatCache(digipeatInputCache, now);
-        if (digipeatInputCache.containsKey(key)) return null;
+        if (digipeatInputCache.containsKey(key)) {
+            return null;
+        }
         List<Digipeater> digis = packet.getDigipeaters();
-        if (digis == null || digis.isEmpty()) return null;
+        if (digis == null || digis.isEmpty()) {
+            return null;
+        }
         int index = firstUnusedDigipeater(digis);
-        if (index < 0) return null;
+        if (index < 0) {
+            return null;
+        }
         Digipeater next = digis.get(index);
         String baseCall = APRSPacket.getBaseCall(next.getCallsign());
         int ssid = parseSsid(next);
         boolean ours = normalizeAx25Address(next.toString())
             .equals(normalizeAx25Address(localCallsign));
         boolean wide1 = baseCall.equalsIgnoreCase("WIDE1") && ssid == 1;
-        if (!ours && !wide1) return null;
+        if (!ours && !wide1) {
+            return null;
+        }
         List<Digipeater> replacement = new ArrayList<>(digis);
         if (ours) {
             replacement.set(index, usedDigipeater(next.toString()));
@@ -639,7 +682,9 @@ public final class AprsController {
 
     private int firstUnusedDigipeater(List<Digipeater> digis) {
         for (int i = 0; i < digis.size(); i++) {
-            if (!digis.get(i).isUsed()) return i;
+            if (!digis.get(i).isUsed()) {
+                return i;
+            }
         }
         return -1;
     }
@@ -664,7 +709,9 @@ public final class AprsController {
     }
 
     private void maybeGateToAprsIs(APRSPacket packet, Long eventId) {
-        if (!igateEnabled) return;
+        if (!igateEnabled) {
+            return;
+        }
         String tnc2 = igateLine(packet, 0);
         String callsign = normalizeAx25Address(callbacks.getCallsign());
         if (tnc2 != null && !callsign.isEmpty()) {
@@ -674,11 +721,17 @@ public final class AprsController {
 
     private String igateLine(APRSPacket packet, int depth) {
         if (packet == null || packet.getPayload() == null || depth > 4
-                || containsForbiddenGatePath(packet) || packet.getDti() == '?') return null;
-        if (packet.getDti() != '}') return toTnc2(packet);
+            || containsForbiddenGatePath(packet) || packet.getDti() == '?') {
+            return null;
+        }
+        if (packet.getDti() != '}') {
+            return toTnc2(packet);
+        }
 
         byte[] payload = packet.getPayload().getRawBytes();
-        if (payload.length < 2) return null;
+        if (payload.length < 2) {
+            return null;
+        }
         String innerLine = new String(payload, 1, payload.length - 1,
             StandardCharsets.ISO_8859_1);
         try {
@@ -690,7 +743,9 @@ public final class AprsController {
 
     private boolean containsForbiddenGatePath(APRSPacket packet) {
         List<Digipeater> path = packet.getDigipeaters();
-        if (path == null) return false;
+        if (path == null) {
+            return false;
+        }
         for (Digipeater digipeater : path) {
             String callsign = digipeater.getCallsign().toUpperCase(Locale.ROOT);
             if ("TCPIP".equals(callsign) || "TCPXX".equals(callsign)
@@ -717,7 +772,9 @@ public final class AprsController {
 
     private String appendIgateConstruct(String tnc2, String callsign) {
         int payloadSeparator = tnc2.indexOf(':');
-        if (payloadSeparator < 0) return null;
+        if (payloadSeparator < 0) {
+            return null;
+        }
         return tnc2.substring(0, payloadSeparator) + ",qAO," + callsign
             + tnc2.substring(payloadSeparator);
     }
@@ -731,7 +788,9 @@ public final class AprsController {
     private PacketContext unwrap(APRSPacket raw) {
         InformationField info = raw.getPayload();
         ThirdPartyField thirdParty = (ThirdPartyField) info.getAprsData(APRSTypes.T_THIRDPARTY);
-        if (thirdParty == null) return new PacketContext(raw, info, null);
+        if (thirdParty == null) {
+            return new PacketContext(raw, info, null);
+        }
         APRSPacket inner = thirdParty.getInnerPacket();
         return inner == null || inner.hasFault() ? null
             : new PacketContext(inner, inner.getPayload(), raw.getSourceCall());

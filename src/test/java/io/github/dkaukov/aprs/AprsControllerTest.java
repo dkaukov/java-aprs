@@ -778,7 +778,9 @@ public class AprsControllerTest {
             List<AprsEvent> due = new ArrayList<>();
             for (AprsEvent event : records) {
                 if (event.deliveryState == AprsEvent.DELIVERY_PENDING
-                        && event.nextRetryAtMs != null && event.nextRetryAtMs <= now) due.add(event);
+                    && event.nextRetryAtMs != null && event.nextRetryAtMs <= now) {
+                    due.add(event);
+                }
             }
             return due;
         }
@@ -788,7 +790,9 @@ public class AprsControllerTest {
             Long nextRetryAt = null;
             for (AprsEvent event : records) {
                 if (event.deliveryState != AprsEvent.DELIVERY_PENDING
-                        || event.nextRetryAtMs == null) continue;
+                    || event.nextRetryAtMs == null) {
+                    continue;
+                }
                 if (nextRetryAt == null || event.nextRetryAtMs < nextRetryAt) {
                     nextRetryAt = event.nextRetryAtMs;
                 }
@@ -809,7 +813,9 @@ public class AprsControllerTest {
 
         @Override public AprsEvent findById(long id) {
             for (AprsEvent event : records) {
-                if (event.id == id) return event;
+                if (event.id == id) {
+                    return event;
+                }
             }
             return null;
         }
@@ -817,7 +823,9 @@ public class AprsControllerTest {
         @Override public AprsEvent findRecentByDedupKey(String dedupKey, long sinceMs) {
             for (int i = records.size() - 1; i >= 0; i--) {
                 AprsEvent event = records.get(i);
-                if (dedupKey.equals(event.dedupKey) && event.lastSeenMs >= sinceMs) return event;
+                if (dedupKey.equals(event.dedupKey) && event.lastSeenMs >= sinceMs) {
+                    return event;
+                }
             }
             return null;
         }
@@ -827,8 +835,10 @@ public class AprsControllerTest {
             for (int i = records.size() - 1; i >= 0; i--) {
                 AprsEvent event = records.get(i);
                 if (event.deliveryState == AprsEvent.DELIVERY_PENDING
-                        && local.equals(event.fromCallsign) && remote.equals(event.toCallsign)
-                        && identifier.equals(event.messageIdentifier)) return event;
+                    && local.equals(event.fromCallsign) && remote.equals(event.toCallsign)
+                    && identifier.equals(event.messageIdentifier)) {
+                    return event;
+                }
             }
             return null;
         }
@@ -863,7 +873,9 @@ public class AprsControllerTest {
 
         @Override public AprsController.Transmission retryMessage(AprsEvent event) {
             retryCount++;
-            if (!retrySucceeds) return null;
+            if (!retrySucceeds) {
+                return null;
+            }
             APRSPacket packet = new APRSPacket(event.fromCallsign,
                 Collections.singletonList(new Digipeater("WIDE1-1")),
                 MessagePacket.createMessagePayload(event.toCallsign, event.body,
@@ -877,7 +889,9 @@ public class AprsControllerTest {
 
         @Override public AprsController.Transmission transmitDigipeatedPacket(APRSPacket packet) {
             digipeatCount++;
-            if (!digipeatSucceeds) return null;
+            if (!digipeatSucceeds) {
+                return null;
+            }
             lastDigipeatedPacket = packet;
             return new AprsController.Transmission(packet, 144_390_000L, packet.toAX25Frame());
         }

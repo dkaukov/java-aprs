@@ -29,8 +29,8 @@
  * along with AVRS; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
  * USA
- * 
- * Large segments of this code were taken from Matti Aarnio at 
+ *
+ * Large segments of this code were taken from Matti Aarnio at
  * http://repo.ham.fi/websvn/java-aprs-fap/
  * I appreciate the base work Matti did - JohnG
  */
@@ -133,14 +133,16 @@ public class PositionParser {
             char lngh = (char) posbuf[17];
             char symbolCode = (char) posbuf[18];
 
-            if (lath == 's' || lath == 'S')
+            if (lath == 's' || lath == 'S') {
                 latitude = 0.0F - latitude;
-            else if (lath != 'n' && lath != 'N')
+            } else if (lath != 'n' && lath != 'N') {
                 throw new Exception("Bad latitude sign character");
-            if (lngh == 'w' || lngh == 'W')
+            }
+            if (lngh == 'w' || lngh == 'W') {
                 longitude = 0.0F - longitude;
-            else if (lngh != 'e' && lngh != 'E')
+            } else if (lngh != 'e' && lngh != 'E') {
                 throw new Exception("Bad longitude sign character");
+            }
             Position position = new Position(latitude, longitude, positionAmbiguity, symbolTable, symbolCode);
 //          TODO - figure out what I meant here...
 //            position.setTimestamp(date);
@@ -262,8 +264,9 @@ public class PositionParser {
                 destcall2[i] = (char) (c - ('P' - '0')); // cast silences warning
             } else if ('K' == c || 'L' == c || 'Z' == c) {
                 destcall2[i] = '_';
-            } else
+            } else {
                 destcall2[i] = c;
+            }
         }
         int posAmbiguity = 0;
         if (destcall2[5] == '_') {
@@ -300,15 +303,18 @@ public class PositionParser {
 
         // Now parsing longitude
         int longDeg = (char) msgBody[1 + 0] - 28;
-        if ((char) destcall[4] >= 'P')
+        if ((char) destcall[4] >= 'P') {
             longDeg += 100;
-        if (longDeg >= 180 && longDeg <= 189)
+        }
+        if (longDeg >= 180 && longDeg <= 189) {
             longDeg -= 80;
-        else if (longDeg >= 190 && longDeg <= 199)
+        } else if (longDeg >= 190 && longDeg <= 199) {
             longDeg -= 190;
+        }
         int longMin = (char) msgBody[1 + 1] - 28;
-        if (longMin >= 60)
+        if (longMin >= 60) {
             longMin -= 60;
+        }
         int longMinFract = (char) msgBody[1 + 2] - 28;
 
         float lng = 0.0F;
@@ -349,10 +355,12 @@ public class PositionParser {
         speed += q;
         int r = (int) (dc % 10) * 100;
         int course = r + se;
-        if (course >= 400)
+        if (course >= 400) {
             course -= 400;
-        if (speed >= 800)
+        }
+        if (speed >= 800) {
             speed -= 800;
+        }
         cse.setSpeed(speed);
         cse.setCourse(course);
         return cse;
@@ -416,7 +424,7 @@ public class PositionParser {
             // $GPRMC,hhmmss.dd,S,xxmm.dddd,<N|S>,yyymm.dddd,<E|W>,s.s,h.h,ddmmyy,d.d,
             // <E|W>,M*hh<CR><LF>
             // ,S, = Status: 'A' = Valid, 'V' = Invalid
-            // 
+            //
             // GPRMC,175050,A,4117.8935,N,10535.0871,W,0.0,324.3,100208,10.0,E,A*3B
             // GPRMC,000000,V,0000.0000,0,00000.0000,0,000,000,000000,,*01/It
             // wasn't me :)
@@ -451,9 +459,9 @@ public class PositionParser {
             // KissUIDigi,000,1*1D
             // $PNTS,1,0,17,02,2008,120824,3117.165,N,13036.481,E,49,059,1,Kagoshima,000,1*71
             // $PNTS,1,0,17,02,2008,120948,3504.283,N,13657.933,E,00,000.0,6,,000,1*36
-            // 
+            //
             // From Alinco EJ-41U Terminal Node Controller manual:
-            // 
+            //
             // 5-4-7 $PNTS
             // This is a private-sentence based on NMEA-0183. The data contains date,
             // time, latitude, longitude, moving speed, direction, altitude plus a short
@@ -501,20 +509,24 @@ public class PositionParser {
         try {
             double lat = parseDegMin(lats.toCharArray(), 0, 2, 9, true);
             double lng = parseDegMin(lngs.toCharArray(), 0, 3, 9, true);
-            if (lat > 90.0F)
+            if (lat > 90.0F) {
                 throw new UnparsablePositionException("Latitude too high");
-            if (lng > 180.0F)
+            }
+            if (lng > 180.0F) {
                 throw new UnparsablePositionException("Longitude too high");
+            }
 
-            if (lath.equals("S") || lath.equals("s"))
+            if (lath.equals("S") || lath.equals("s")) {
                 lat = 0.0F - lat; // South negative
-            else if (!(lath.equals("N") || lath.equals("n")))
+            } else if (!(lath.equals("N") || lath.equals("n"))) {
                 throw new UnparsablePositionException("Bad latitude sign");
+            }
 
-            if (lngh.equals("W") || lngh.equals("w"))
+            if (lngh.equals("W") || lngh.equals("w")) {
                 lng = 0.0F - lng; // West negative
-            else if (!(lngh.equals("E") || lngh.equals("e")))
+            } else if (!(lngh.equals("E") || lngh.equals("e"))) {
                 throw new UnparsablePositionException("Bad longitude sign");
+            }
 
             return new Position(lat, lng, 0, '/', '>'); // FIXME: GPS symbols
             // fillPos(fap, lat, lng, '/', '>', 0);
@@ -590,42 +602,50 @@ public class PositionParser {
 
     private static double parseDegMin(char[] txt, int cursor, int degSize, int len, boolean decimalDot)
             throws Exception {
-        if (txt == null || txt.length < cursor + degSize + 2)
+        if (txt == null || txt.length < cursor + degSize + 2) {
             throw new Exception("Too short degmin data");
+        }
         double result = 0.0F;
         for (int i = 0; i < degSize; ++i) {
             char c = txt[cursor + i];
-            if (c < '0' || c > '9')
+            if (c < '0' || c > '9') {
                 throw new Exception("Bad input decimals:  " + c);
+            }
             result = result * 10.0F + (c - '0');
         }
         double minFactor = 10.0F; // minutes factor, divide by 10.0F for every
         // minute digit
         double minutes = 0.0F;
         int mLen = txt.length - degSize - cursor;
-        if (mLen > len - degSize)
+        if (mLen > len - degSize) {
             mLen = len - degSize;
+        }
         for (int i = 0; i < mLen; ++i) {
             char c = txt[cursor + degSize + i];
             if (decimalDot && i == 2) {
-                if (c == '.')
+                if (c == '.') {
                     continue; // Skip it! (but only at this position)
+                }
                 throw new Exception("Expected decimal dot");
             }
-            if (c < '0' || c > '9')
+            if (c < '0' || c > '9') {
                 throw new Exception("Bad input decimals: " + c);
+            }
             minutes += minFactor * (c - '0');
             minFactor *= 0.1D;
         }
-        if (minutes >= 60.0D)
+        if (minutes >= 60.0D) {
             throw new Exception("Bad minutes value - 60.0 or over");
+        }
         // return result
         result += minutes / 60.0D;
         result = Math.round(result * 100000.0) * 0.00001D;
-        if (degSize == 2 && result > 90.01D)
+        if (degSize == 2 && result > 90.01D) {
             throw new Exception("Latitude value too high");
-        if (degSize == 3 && result > 180.01F)
+        }
+        if (degSize == 3 && result > 180.01F) {
             throw new Exception("Longitude value too high");
+        }
         return result;
     }
 
@@ -634,12 +654,15 @@ public class PositionParser {
      * 'Z') return true; if ('a' <= c && c <= 'j') return true; return false; }
      */
     private static boolean validSymTableUncompressed(char c) {
-        if (c == '/' || c == '\\')
+        if (c == '/' || c == '\\') {
             return true;
-        if ('A' <= c && c <= 'Z')
+        }
+        if ('A' <= c && c <= 'Z') {
             return true;
-        if ('0' <= c && c <= '9')
+        }
+        if ('0' <= c && c <= '9') {
             return true;
+        }
         return false;
     }
 }

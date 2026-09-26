@@ -29,16 +29,16 @@
  * along with JavAPRSLib; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
  * USA
- * 
+ *
  */
 
 package io.github.dkaukov.aprs.parser;
 
 public enum APRSExtensions {
     T_UNSPECIFIED,
-	T_COURSESPEED,
-	T_PHG,
-	T_RADIORANGE,
-	T_DFSTRENGTH
-	;
+    T_COURSESPEED,
+    T_PHG,
+    T_RADIORANGE,
+    T_DFSTRENGTH
+    ;
 }

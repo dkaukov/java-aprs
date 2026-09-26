@@ -61,16 +61,16 @@ public abstract class APRSData implements java.io.Serializable, java.lang.Compar
         System.arraycopy(msgBody, 0, rawBytes, 0, msgBody.length);
     }
 
-    
-    /** 
+
+    /**
      * @return int
      */
     public int getLastCursorPosition() {
         return lastCursorPosition;
     }
 
-    
-    /** 
+
+    /**
      * @param cp
      */
     public void setLastCursorPosition(int cp) {
@@ -84,22 +84,22 @@ public abstract class APRSData implements java.io.Serializable, java.lang.Compar
     @Override
     public abstract String toString();
 
-    
-    /** 
+
+    /**
      * @return boolean
      */
     public abstract boolean hasFault();
 
-    
-    /** 
+
+    /**
      * @param type
      */
     public void setType( APRSTypes type ) {
         this.type = type;
     }
 
-    
-    /** 
+
+    /**
      * @return APRSTypes
      */
     public APRSTypes getType() {
@@ -111,7 +111,7 @@ public abstract class APRSData implements java.io.Serializable, java.lang.Compar
      */
     public String getComment() { return this.comment; }
 
-    /** 
+    /**
      * @return byte[] the raw bytes handed to this object
      */
     public byte[] getRawBytes() {
@@ -125,7 +125,7 @@ public abstract class APRSData implements java.io.Serializable, java.lang.Compar
         this.rawBytes = rawBytes == null ? null : rawBytes.clone();
     }
 
-    /** 
+    /**
      * @param o
      * @return int
      */

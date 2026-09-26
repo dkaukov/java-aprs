@@ -35,11 +35,11 @@ public final class TimeField extends APRSData {
         reportedTimestamp = Calendar.getInstance();
         reportedTimestamp.setTimeZone(TimeZone.getTimeZone("UTC"));
     }
-        
-    /** 
+
+    /**
      * @param msgBody
      * @param startPos
-     * 
+     *
      * Common constructor for a TimeField object.
      */
     public TimeField(byte[] msgBody, int startPos) {
@@ -54,8 +54,8 @@ public final class TimeField extends APRSData {
         if (dti == '/' || dti == '@') {
             /*
              * From the protocol spec, chapter 6, there are 3 different timestamp formats:
-             * DHM: fixed 7 character, Day Hour Minute, either zulu or local 
-             * HMS: fixed 7 character, Hour Minute Second, always ZULU 
+             * DHM: fixed 7 character, Day Hour Minute, either zulu or local
+             * HMS: fixed 7 character, Hour Minute Second, always ZULU
              * MDHM: fixed _8_ character zulu timestamp
              */
             Calendar.Builder cb = new Calendar.Builder();
@@ -70,9 +70,9 @@ public final class TimeField extends APRSData {
                     int currentDay = c.get(Calendar.DAY_OF_MONTH);
                     int msgDay = (msgBody[1]-'0')*10 + ((short)msgBody[2]-'0');
                     // since it's possible we're reading this message some time after it was actually sent
-                    // (i.e. from a testing file), we need to make sure we do the best we can to get 
+                    // (i.e. from a testing file), we need to make sure we do the best we can to get
                     // the month correct.  For example, the test file is from the end of July, but if
-                    // it's read during the beginning of August, messages sent on July 29 will be 
+                    // it's read during the beginning of August, messages sent on July 29 will be
                     // stamped with AUG 29 unless we do this check
                     if ( msgDay > currentDay ) {
                         currentMonth-=1;
@@ -115,7 +115,7 @@ public final class TimeField extends APRSData {
                     // this is for the funky case of MHDM format, always in Zulu.
                     this.reportedTimestamp = cb.build();
                     cursor += 8;
-                    break;								
+                    break;
                 }
                 default: {
                     this.reportedTimestamp = cb.build();
@@ -127,28 +127,28 @@ public final class TimeField extends APRSData {
         setLastCursorPosition(cursor);
     }
 
-    
-    /** 
+
+    /**
      * @return Calendar
      */
     public Calendar getReportedTimestamp() {
         return this.reportedTimestamp == null ? null : (Calendar) this.reportedTimestamp.clone();
     }
 
-    
-    /** 
+
+    /**
      * @return String
      */
     @Override
     public String toString() {
-        SimpleDateFormat f = new SimpleDateFormat("dd HH:MM");          
+        SimpleDateFormat f = new SimpleDateFormat("dd HH:MM");
         StringBuffer sb = new StringBuffer("---TIMESTAMP---\n");
         sb.append("Reported Timestamp: "+f.format(reportedTimestamp.getTime())+"\n");
         return sb.toString();
     }
 
-    
-    /** 
+
+    /**
      * @param o
      * @return int
      */
@@ -163,8 +163,8 @@ public final class TimeField extends APRSData {
         return -1;
     }
 
-    
-    /** 
+
+    /**
      * @return boolean
      */
     @Override
@@ -172,15 +172,16 @@ public final class TimeField extends APRSData {
         return this.hasFault;
     }
 
-    
-    /** 
+
+    /**
      * @param o
      * @return boolean
      */
     @Override
     public boolean equals(Object o) {
-        if (o == this)
+        if (o == this) {
             return true;
+        }
         if (!(o instanceof TimeField)) {
             return false;
         }
@@ -188,8 +189,8 @@ public final class TimeField extends APRSData {
         return Objects.equals(reportedTimestamp, timeField.reportedTimestamp);
     }
 
-    
-    /** 
+
+    /**
      * @return int
      */
     @Override

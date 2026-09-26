@@ -48,41 +48,41 @@ public final class RangeExtension extends DataExtension implements Serializable 
         return new RangeExtension(this);
     }
 
-	private static final long serialVersionUID = 1L;
-	private int range;
-	
-	public RangeExtension( int range ) {
-		this.setRange(range);
-	}
+    private static final long serialVersionUID = 1L;
+    private int range;
 
-	/**
-	 * @param range the range to set
-	 */
-	public void setRange(int range) {
-		this.range = range;
-	}
+    public RangeExtension( int range ) {
+        this.setRange(range);
+    }
 
-	/**
-	 * @return the range
-	 */
-	public int getRange() {
-		return range;
-	}
-	
-	/**
-	 * @return Enum indicating the data type extention
-	*/
-	@Override
-	public APRSExtensions getType() {
-		return APRSExtensions.T_RADIORANGE;
-	}
+    /**
+     * @param range the range to set
+     */
+    public void setRange(int range) {
+        this.range = range;
+    }
 
-	/** 
-	 * @return String
-	 */
-	@Override
-	public String toSAEString() {
-		return "Range of "+range+" miles";
-	}
+    /**
+     * @return the range
+     */
+    public int getRange() {
+        return range;
+    }
+
+    /**
+     * @return Enum indicating the data type extention
+    */
+    @Override
+    public APRSExtensions getType() {
+        return APRSExtensions.T_RADIORANGE;
+    }
+
+    /**
+     * @return String
+     */
+    @Override
+    public String toSAEString() {
+        return "Range of "+range+" miles";
+    }
 
 }

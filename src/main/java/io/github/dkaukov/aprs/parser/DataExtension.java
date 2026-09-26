@@ -32,7 +32,7 @@
  */
 package io.github.dkaukov.aprs.parser;
 /**
- * 
+ *
  * @author johng
  * Abstract class that encapsulates the possible Data Extensions to APRS packets.  These include
  * Course and Speed
@@ -47,6 +47,6 @@ package io.github.dkaukov.aprs.parser;
 public abstract class DataExtension {
     /** Returns an independent copy of this extension. */
     public abstract DataExtension copy();
-	public abstract String toSAEString();
-	public abstract APRSExtensions getType();
+    public abstract String toSAEString();
+    public abstract APRSExtensions getType();
 }

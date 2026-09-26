@@ -32,52 +32,52 @@
  */
 package io.github.dkaukov.aprs.parser;
 /**
- * 
+ *
  * @author johng
  * Incomplete, but a good start for a class to calculate grid squares from
  * latitude and longitude.  I'll finish this some time...
  */
 public class GridConverter {
-	private static char[] field = { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
-			'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R' };
+    private static char[] field = { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
+            'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R' };
 
-/** 
+/**
  * @param ARGS
  */
-//	private static char[] sub square = { 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
-//			'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u',
-//			'v', 'w', 'x' };
+//    private static char[] sub square = { 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
+//            'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u',
+//            'v', 'w', 'x' };
 
-	public static void main( String[] ARGS ) {
-		double latitude = 0;
-		double longitude = 0;
-		if ( ARGS.length < 2 ) {
-			System.out.println("Usage:  GridConverter <latitude> <longitude>");
-			System.exit(1);
-		}
-		try {
-			latitude = Double.parseDouble(ARGS[0]);
-			longitude = Double.parseDouble(ARGS[1]);
-		} catch ( NumberFormatException nfe ) {
-			System.err.println("Please check your number formats.");
-			System.exit(1);
-		}
-		latitude = 41.7146;
-		longitude = -72.7271; 
-		System.out.println(" Converting "+longitude+", "+latitude);
-		double olong = 180.0 + longitude;
-		double olat = 90.0 + latitude;
-		System.out.println(olong+" "+olat);
-		int fieldLongitude = (int)(Math.floor(olong/20.0));
-		int fieldLatitude = (int)(Math.floor(olat/10.0));
-		System.out.println(fieldLongitude+" "+fieldLatitude);
-		char field1 = field[fieldLongitude];
-		char field2 = field[fieldLatitude];
-		double degreesFromEasting = olong - (fieldLongitude * 20);
-		double degreesFromNorthing = olat - (fieldLatitude * 10);
-		System.out.println(degreesFromEasting+" "+degreesFromNorthing);
-		int squareLongitude = (int)Math.floor(degreesFromEasting / 2);
-		int squareLatitude = (int)Math.floor(degreesFromNorthing);
-		System.out.println(field1+""+field2+""+squareLongitude+""+squareLatitude);
-	}
+    public static void main( String[] ARGS ) {
+        double latitude = 0;
+        double longitude = 0;
+        if ( ARGS.length < 2 ) {
+            System.out.println("Usage:  GridConverter <latitude> <longitude>");
+            System.exit(1);
+        }
+        try {
+            latitude = Double.parseDouble(ARGS[0]);
+            longitude = Double.parseDouble(ARGS[1]);
+        } catch ( NumberFormatException nfe ) {
+            System.err.println("Please check your number formats.");
+            System.exit(1);
+        }
+        latitude = 41.7146;
+        longitude = -72.7271;
+        System.out.println(" Converting "+longitude+", "+latitude);
+        double olong = 180.0 + longitude;
+        double olat = 90.0 + latitude;
+        System.out.println(olong+" "+olat);
+        int fieldLongitude = (int)(Math.floor(olong/20.0));
+        int fieldLatitude = (int)(Math.floor(olat/10.0));
+        System.out.println(fieldLongitude+" "+fieldLatitude);
+        char field1 = field[fieldLongitude];
+        char field2 = field[fieldLatitude];
+        double degreesFromEasting = olong - (fieldLongitude * 20);
+        double degreesFromNorthing = olat - (fieldLatitude * 10);
+        System.out.println(degreesFromEasting+" "+degreesFromNorthing);
+        int squareLongitude = (int)Math.floor(degreesFromEasting / 2);
+        int squareLatitude = (int)Math.floor(degreesFromNorthing);
+        System.out.println(field1+""+field2+""+squareLongitude+""+squareLatitude);
+    }
 }

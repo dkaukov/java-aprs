@@ -69,16 +69,22 @@ public final class StationCapabilitiesField extends APRSData {
         List<String> unrecognized = new ArrayList<>();
         for (String rawToken : rawText.split(",")) {
             String token = rawToken.trim();
-            if (token.isEmpty()) continue;
+            if (token.isEmpty()) {
+                continue;
+            }
             String upperToken = token.toUpperCase(Locale.ROOT);
             if ("IGATE".equals(upperToken)) {
                 parsedIgate = true;
             } else if (upperToken.startsWith("MSG_CNT=")) {
                 parsedMessageCount = parseCount(token.substring(token.indexOf('=') + 1));
-                if (parsedMessageCount == null) unrecognized.add(token);
+                if (parsedMessageCount == null) {
+                    unrecognized.add(token);
+                }
             } else if (upperToken.startsWith("LOC_CNT=")) {
                 parsedLocalStationCount = parseCount(token.substring(token.indexOf('=') + 1));
-                if (parsedLocalStationCount == null) unrecognized.add(token);
+                if (parsedLocalStationCount == null) {
+                    unrecognized.add(token);
+                }
             } else {
                 unrecognized.add(token);
             }
@@ -103,7 +109,9 @@ public final class StationCapabilitiesField extends APRSData {
 
     private String buildDisplayText(String rawText, List<String> unrecognized) {
         List<String> parts = new ArrayList<>();
-        if (igate) parts.add("IGate");
+        if (igate) {
+            parts.add("IGate");
+        }
         if (messageCount != null) {
             parts.add(messageCount + (messageCount == 1 ? " message" : " messages"));
         }

@@ -54,15 +54,13 @@
     </scm>
 
     <properties>
+        <!-- Define the remote or target URL configuration for the site plugin. -->
+        <basepom.site.scm.url>scm:git:git@github.com:dkaukov/java-aprs.git</basepom.site.scm.url>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.targetJdk>11</project.build.targetJdk>
         <basepom.release.profiles>basepom.central-release</basepom.release.profiles>
         <basepom.release.push-changes>true</basepom.release.push-changes>
         <basepom.license.header>license-header.txt</basepom.license.header>
-        <basepom.check.fail-spotbugs>true</basepom.check.fail-spotbugs>
-        <!-- Basepom's style profile reports 1,730 violations in the imported code. -->
-        <basepom.check.skip-checkstyle>true</basepom.check.skip-checkstyle>
-        <basepom.check.fail-license>true</basepom.check.fail-license>
         <junit.version>4.13.2</junit.version>
         <lombok.version>1.18.46</lombok.version>
     </properties>
