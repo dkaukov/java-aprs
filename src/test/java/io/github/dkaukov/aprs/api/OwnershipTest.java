@@ -15,6 +15,7 @@ package io.github.dkaukov.aprs.api;
 import static org.junit.Assert.*;
 
 import io.github.dkaukov.aprs.AprsEvent;
+import io.github.dkaukov.aprs.AprsController;
 import io.github.dkaukov.aprs.AprsPacket;
 import io.github.dkaukov.aprs.parser.*;
 import java.nio.charset.StandardCharsets;
@@ -23,6 +24,50 @@ import java.util.List;
 import org.junit.Test;
 
 public class OwnershipTest {
+    @Test public void transmissionOwnsInputsAndReturnsDetachedSnapshots() throws Exception {
+        APRSPacket packet = Parser.parse("VK3ABC>APRS,WIDE1-1:>original");
+        packet.setComment("original");
+        byte[] raw = packet.toAX25Frame();
+        byte[] expected = raw.clone();
+        AprsController.Transmission transmission = new AprsController.Transmission(packet, 144_390_000L, raw);
+        packet.addDigipeater(new Digipeater("OTHER"));
+        packet.setComment("changed");
+        raw[0] ^= 1;
+        transmission.getPacket().addDigipeater(new Digipeater("ANOTHER"));
+        transmission.getRawAx25()[0] ^= 1;
+        assertEquals(1, transmission.getPacket().getDigipeaters().size());
+        assertEquals("original", transmission.getPacket().getComment());
+        assertArrayEquals(expected, transmission.getRawAx25());
+        assertNull(new AprsController.Transmission(packet, null, null).getRawAx25());
+    }
+
+    @Test public void eventBuilderReuseDoesNotModifyBuiltEvents() {
+        AprsEvent.AprsEventBuilder builder = AprsEvent.builder().id(42).body("original")
+            .firstSeenMs(100).packetCount(1).nextRetryAtMs(200L);
+        AprsEvent original = builder.build();
+        AprsEvent changed = builder.body("changed").build();
+        AprsEvent updated = original.toBuilder().packetCount(2).build();
+        assertEquals("original", original.getBody());
+        assertEquals("changed", changed.getBody());
+        assertEquals(1, original.getPacketCount());
+        assertEquals(2, updated.getPacketCount());
+        assertEquals(42, updated.getId());
+        assertEquals(100, updated.getFirstSeenMs());
+        assertEquals(Long.valueOf(200), updated.getNextRetryAtMs());
+    }
+
+    @Test public void eventStateIsPrivateFinalAndHasNoSetters() {
+        for (java.lang.reflect.Field field : AprsEvent.class.getDeclaredFields()) {
+            if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                assertTrue(java.lang.reflect.Modifier.isPrivate(field.getModifiers()));
+                assertTrue(java.lang.reflect.Modifier.isFinal(field.getModifiers()));
+            }
+        }
+        for (java.lang.reflect.Method method : AprsEvent.class.getMethods()) {
+            assertFalse(method.getName().startsWith("set"));
+        }
+    }
+
     @Test public void modelAccessorsAndCopiesPreserveDataWithoutSharingBuffers() {
         AprsPacket packet = new AprsPacket();
         byte[] frame = {1, 2, 3};
@@ -37,12 +82,10 @@ public class OwnershipTest {
         assertEquals("RF", copy.getSource());
         assertEquals(7, copy.getId());
 
-        AprsEvent event = new AprsEvent();
-        event.setBody("original");
-        event.setDeliveryState(AprsEvent.DELIVERY_PENDING);
-        event.setInternetOnly(true);
-        AprsEvent snapshot = event.copy();
-        snapshot.setBody("changed");
+        AprsEvent event = AprsEvent.builder().body("original")
+            .deliveryState(AprsEvent.DELIVERY_PENDING).internetOnly(true).build();
+        AprsEvent snapshot = event.toBuilder().body("changed").build();
+        assertEquals("changed", snapshot.getBody());
         assertEquals("original", event.getBody());
         assertEquals(AprsEvent.DELIVERY_PENDING, snapshot.getDeliveryState());
         assertTrue(snapshot.isInternetOnly());

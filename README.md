@@ -16,7 +16,8 @@ Keep its existing license headers when modifying it.
 
 Run `mvn clean verify` for tests and static analysis. SpotBugs findings fail the
 build, with no exclusion filters in the verification build. Parser APIs return
-deep snapshots and persistence exchanges copied records. See
+deep snapshots; persistence shares immutable events and copies mutable packets. Create
+events with `AprsEvent.builder()` and derive replacements with `event.toBuilder()`. See
 [MIGRATING.md](MIGRATING.md) for Android integration changes. Raw APRS
 payload conversions use ISO-8859-1 to preserve wire bytes; AX.25 callsigns and
 numeric protocol fields use ASCII.

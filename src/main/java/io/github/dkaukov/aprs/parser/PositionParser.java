@@ -54,7 +54,6 @@ public class PositionParser {
         if (msgBody[0] == '/' || msgBody[0] == '@') {
             // With a prepended timestamp, jump over it.
             if (msgBody[cursor+6] == 'z') {
-                System.err.println("FOUND A ZULU TIMESTAMP");
                 int day    = (msgBody[cursor+0] - '0') * 10 + msgBody[cursor+1] - '0';
                 int hour   = (msgBody[cursor+2] - '0') * 10 + msgBody[cursor+3] - '0';
                 int minute = (msgBody[cursor+4] - '0') * 10 + msgBody[cursor+5] - '0';
@@ -64,7 +63,6 @@ public class PositionParser {
             }
         }
         if (msgBody.length < cursor + 19) {
-            System.err.println("Cursor is "+cursor+", barfed on "+new String(msgBody, StandardCharsets.UTF_8));
             throw new UnparsablePositionException("Uncompressed packet too short");
         }
 

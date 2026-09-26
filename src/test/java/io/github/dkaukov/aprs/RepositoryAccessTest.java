@@ -22,13 +22,13 @@ public class RepositoryAccessTest {
     @Test public void writesCannotExposeControllerRecordsToTheRepository() {
         Store store = new Store();
         RepositoryAccess access = new RepositoryAccess(store, store);
-        AprsEvent event = new AprsEvent();
-        event.setBody("original");
+        AprsEvent event = AprsEvent.builder().body("original").build();
         assertEquals(1, access.insert(event));
-        store.event.setBody("repository mutation");
+        store.event = store.event.toBuilder().body("repository mutation").build();
         assertEquals("original", event.getBody());
         access.update(event);
-        event.setBody("controller mutation");
+        AprsEvent changed = event.toBuilder().body("controller mutation").build();
+        assertEquals("controller mutation", changed.getBody());
         assertEquals("original", store.event.getBody());
 
         AprsPacket packet = new AprsPacket();
@@ -41,13 +41,12 @@ public class RepositoryAccessTest {
     @Test public void readsDoNotLetTheControllerEditRepositoryRecords() {
         Store store = new Store();
         RepositoryAccess access = new RepositoryAccess(store, store);
-        store.event = new AprsEvent();
-        store.event.setBody("persisted");
-        access.findById(1).setBody("changed");
-        access.findRecentByDedupKey("key", 0).setBody("changed");
-        access.findPendingOutgoingEvent("local", "remote", "id").setBody("changed");
+        store.event = AprsEvent.builder().body("persisted").build();
+        assertEquals("changed", access.findById(1).toBuilder().body("changed").build().getBody());
+        assertEquals("persisted", access.findRecentByDedupKey("key", 0).getBody());
+        assertEquals("persisted", access.findPendingOutgoingEvent("local", "remote", "id").getBody());
         List<AprsEvent> due = access.loadDueReliableEvents(0);
-        due.get(0).setBody("changed");
+        due.set(0, due.get(0).toBuilder().body("changed").build());
         due.clear();
         assertEquals("persisted", store.event.getBody());
         assertEquals(1, access.loadDueReliableEvents(0).size());

@@ -123,20 +123,6 @@ public final class ObjectField extends APRSData {
     }
 
 
-    /**
-     * @param o
-     * @return int
-     */
-    @Override
-    public int compareTo(APRSData o) {
-        if (this.hashCode() > o.hashCode()) {
-            return 1;
-        }
-        if (this.hashCode() == o.hashCode()) {
-            return 0;
-        }
-        return -1;
-    }
 
 
     /**

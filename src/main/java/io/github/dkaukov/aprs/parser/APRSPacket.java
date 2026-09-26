@@ -41,6 +41,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -116,9 +117,9 @@ public final class APRSPacket implements Serializable {
 
     public APRSPacket(String source, String destination, List<Digipeater> digipeaters, byte[] payload) {
         receivedTimestamp = new Date(System.currentTimeMillis());
-        this.sourceCall = source.toUpperCase();
-        this.destinationCall = destination.toUpperCase();
-        this.digipeaters = Optional.ofNullable(digipeaters).orElse(List.of(new Digipeater("TCPIP*")))
+        this.sourceCall = source.toUpperCase(Locale.ROOT);
+        this.destinationCall = destination.toUpperCase(Locale.ROOT);
+        this.digipeaters = Optional.ofNullable(digipeaters).orElse(List.of())
             .stream().map(Digipeater::copy).collect(Collectors.toCollection(ArrayList::new));
         this.dti = (char) payload[0];
         this.payload = dti == ':' ? new MessagePacket(payload, destinationCall)
@@ -152,7 +153,7 @@ public final class APRSPacket implements Serializable {
         // Q-constructs on my part).  For now, I'm saying that call sign AFTER a
         // q-construct is the I-gate.
         for (int i = 0; i < digipeaters.size() - 1; i++) {
-            if (Q_CONSTRUCTS.contains(digipeaters.get(i).getCallsign().toLowerCase())) {
+            if (Q_CONSTRUCTS.contains(digipeaters.get(i).getCallsign().toLowerCase(Locale.ROOT))) {
                 return digipeaters.get(i + 1).toString();
             }
         }

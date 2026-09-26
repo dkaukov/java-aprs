@@ -32,6 +32,8 @@
  */
 package io.github.dkaukov.aprs.parser;
 
+import java.util.Locale;
+
 /**
  * @author johng
  *
@@ -58,7 +60,7 @@ public class Utilities {
         if (callSign.indexOf('-') > 0) {
             callSign = callSign.substring(0, callSign.indexOf('-'));
         }
-        callSign = callSign.toUpperCase();
+        callSign = callSign.toUpperCase(Locale.ROOT);
         short i = 0;
         int hash = kKey;
         int len = callSign.length();

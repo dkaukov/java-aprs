@@ -33,6 +33,7 @@
 package io.github.dkaukov.aprs.parser;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 public final class MessagePacket extends InformationField {
     private MessagePacket(MessagePacket source) {
@@ -68,7 +69,7 @@ public final class MessagePacket extends InformationField {
             this.hasFault = true;
             return;
         } else {
-            targetCallsign = message.substring(1,msgSpc).trim().toUpperCase();
+            targetCallsign = message.substring(1,msgSpc).trim().toUpperCase(Locale.ROOT);
         }
         int msgNumberIdx = message.lastIndexOf('{');
         this.messageNumber="";
@@ -78,7 +79,7 @@ public final class MessagePacket extends InformationField {
         } else {
             messageBody = message.substring(msgSpc + 1);
         }
-        String lcMsg = messageBody.toLowerCase();
+        String lcMsg = messageBody.toLowerCase(Locale.ROOT);
         if ( lcMsg.startsWith("ack") ) {
             isAck = true;
             this.messageNumber = messageBody.substring(3,messageBody.length());

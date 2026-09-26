@@ -33,7 +33,7 @@
 
 package io.github.dkaukov.aprs.parser;
 
-public abstract class APRSData implements java.io.Serializable, java.lang.Comparable<APRSData> {
+public abstract class APRSData implements java.io.Serializable {
     private static final long serialVersionUID = 1L;
     protected APRSTypes type;
     protected boolean hasFault;
@@ -125,18 +125,4 @@ public abstract class APRSData implements java.io.Serializable, java.lang.Compar
         this.rawBytes = rawBytes == null ? null : rawBytes.clone();
     }
 
-    /**
-     * @param o
-     * @return int
-     */
-    @Override
-    public int compareTo(APRSData o) {
-        if (this.hashCode() > o.hashCode()) {
-            return 1;
-        }
-        if (this.hashCode() == o.hashCode()) {
-            return 0;
-        }
-        return -1;
-    }
 }

@@ -116,7 +116,6 @@ public final class PositionField extends APRSData {
                                 this.position = PositionParser.parseUncompressed(msgBody, cursor);
                             } catch (Exception ex) {
                                 this.comment = ex.getMessage();
-                                System.err.println(ex);
                                 hasFault = true;
                             }
                             try {
@@ -267,16 +266,6 @@ public final class PositionField extends APRSData {
         return this.compressedFormat;
     }
 
-    @Override
-    public int compareTo(APRSData o) {
-        if (this.hashCode() > o.hashCode()) {
-            return 1;
-        }
-        if (this.hashCode() == o.hashCode()) {
-            return 0;
-        }
-        return -1;
-    }
 
     @Override
     public boolean hasFault() {

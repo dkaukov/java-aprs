@@ -34,6 +34,7 @@ package io.github.dkaukov.aprs.parser;
 
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 /**
  *
@@ -47,7 +48,7 @@ public class Callsign implements Serializable {
 
     public Callsign(String call) {
         String[] callssid = call.split("-");
-        this.callsign = callssid[0].toUpperCase();
+        this.callsign = callssid[0].toUpperCase(Locale.ROOT);
         if (callssid.length > 1) {
             this.ssid = callssid[1];
         } else {
@@ -81,7 +82,7 @@ public class Callsign implements Serializable {
      * @param callsign the callsign to set
      */
     public void setCallsign(String callsign) {
-        this.callsign = callsign.toUpperCase();
+        this.callsign = callsign.toUpperCase(Locale.ROOT);
     }
 
     /**

@@ -1,27 +1,83 @@
-# Android integration changes before 0.1.0
+# Consumer migration guide before 0.1.0
 
-The SpotBugs exclusions have been removed. These changes require recompiling
-and updating consumers of the snapshot library.
+These changes require updating and recompiling consumers of the snapshot library,
+including the Android app. Update constructor calls, event persistence mappers,
+callback implementations, and beacon configuration before rebuilding.
+
+## Controller construction and threading
+
+Remove the executor argument from controller construction:
+
+```java
+AprsController controller = new AprsController(packetRepository, eventRepository, callbacks);
+```
+
+All state-changing calls are synchronous and internally serialized per controller
+instance, including settings, repository operations, and callbacks. Concurrent
+callers block until the current operation ends. No internal executor or worker
+thread is created; calls now finish processing before returning rather than
+queuing persistence for later.
+
+Schedule calls externally when background execution is needed. Any executor is
+safe for serialization, but use an ordered executor if arrival order matters;
+monitor acquisition does not guarantee FIFO ordering. Snapshot mutable inputs
+**before** placing them on an app-owned queue:
+
+```java
+APRSPacket queuedPacket = packet.copy();
+byte[] queuedFrame = rawAx25 == null ? null : rawAx25.clone();
+executor.execute(() -> controller.handle(queuedPacket, source, frequencyHz, queuedFrame));
+```
+
+The controller's ingress copy happens when `handle()` executes, not when the app
+queues the call. Do not modify the queued snapshots while awaiting execution.
+
+Callbacks and repository methods run on the calling thread while the controller
+monitor is held. Keep them short; do not wait for another thread to enter the
+controller or re-enter state-changing operations from a callback. Queue follow-up
+work to run after the callback returns (not through an inline/direct executor).
+Callbacks returning a `Transmission` must still return the actual result
+synchronously; posting work and reporting success early changes their contract.
+
+The lock protects one controller only. Separate controllers and external writers
+sharing a repository still require repository-level coordination. The app remains
+responsible for invoking `tick(nowMs)`; the controller creates no timer.
 
 ## Event and packet models
 
-`AprsEvent` and `AprsPacket` are final. Their instance fields are package-private;
-use public JavaBean getters and setters from the Android app:
+`AprsEvent` is immutable: all instance fields are private and final. Its no-arg
+and copy constructors and setters are removed. Create events with `builder()`;
+derive replacements with `toBuilder()` and retain the returned value:
 
 ```java
-event.setDeliveryState(AprsEvent.DELIVERY_DELIVERED);
+AprsEvent event = AprsEvent.builder()
+    .fromCallsign("VK3ME").body("hello").build();
+event = event.toBuilder().deliveryState(AprsEvent.DELIVERY_DELIVERED).build();
 long id = event.getId();
 boolean internetOnly = event.isInternetOnly();
-packet.setRawAx25(frame);
 ```
 
-All former public instance fields have accessors. Boolean getters use `is`,
-including `isDigipeated()`. Update persistence mappers accordingly. Both models
-provide a copy constructor and `copy()`. `AprsPacket` copies `rawAx25` on input,
+Boolean getters use `is`, including `isDigipeated()`. Update persistence mappers
+to build events instead of populating them with setters. Unspecified builder
+fields retain Java defaults (zero, false, or null). `toBuilder()` preserves every
+field. `copy()` returns the same immutable event; it no longer allocates a copy.
+
+`AprsPacket` remains a mutable final class with JavaBean getters/setters,
+a copy constructor, and `copy()`. It copies `rawAx25` on input,
 output, and copying; modifying an array returned by `getRawAx25()` has no effect
 until you call `setRawAx25()`.
 
 ## Parser ownership
+
+`APRSData` no longer implements `Comparable`; hash-based `compareTo()` methods
+were removed from it and its subclasses. Supply an explicit semantic comparator
+if your application sorts parser fields or stores them in sorted collections.
+
+Passing `null` for an `APRSPacket` digipeater list now means an empty path, not
+`TCPIP*`. Supply that Internet path explicitly where appropriate. Parsing no longer
+writes diagnostics to standard error; inspect fault flags/comments or handle the
+reported exception. The controller's `Raw: ...` fallback decodes bytes as
+ISO-8859-1, consistent with the parser's byte-preserving wire representation.
 
 `APRSPacket.getPayload()`, `ThirdPartyField.getInnerPacket()`, position getters,
 and extension getters return independent copies. Digipeater lists, field maps,
@@ -54,15 +110,62 @@ state and independently copy mutable children.
 
 ## Repository contract
 
-`AprsController` constructor and repository interfaces are unchanged. The
-controller now passes snapshots to `insert()`/`update()` and copies records
-returned by queries. Implement `update()` to persist the supplied record by ID;
+Repository interface signatures are unchanged. The controller shares immutable
+events and copies mutable packets at the repository
+boundary. Implement `update()` to replace/persist the supplied event by ID;
 do not rely on edits to previously returned objects becoming visible by identity.
-`insert()` must return the assigned ID. The backing store remains shared, so
+`insert()` must return the assigned ID. If the repository stores events in memory,
+store `event.toBuilder().id(assignedId).build()` rather than changing the input.
+Existing event references remain unchanged after updates; reload by ID for the
+latest state. The backing store remains shared, so
 later queries still observe committed app-side changes.
+
+## Callback and packet ownership
+
+`handle()` snapshots the input packet and raw AX.25 bytes before invoking any
+consumer callback. Do not mutate inputs concurrently while they are being
+copied. Digipeater callbacks receive detached packet snapshots, so edits cannot
+change the controller's echo-suppression key.
+
+`Transmission` now snapshots both constructor inputs. Replace direct access to
+`transmission.packet` and `transmission.rawAx25` with `getPacket()` and
+`getRawAx25()`; these return fresh defensive copies. Construct a new transmission
+to report different data. `frequencyHz` remains a public immutable value.
+Incoming-message and retry callbacks receive immutable `AprsEvent` values;
+`toBuilder()` creates a replacement without changing controller state.
+
+## Application-owned policy
+
+Supply the APRS-IS identity explicitly: `new AprsIsClient("MyApp", "1.0")`.
+The client no longer advertises KV4P HT automatically. Software name and version
+are normalized to single tokens before transmission.
+
+Construct RF packets with an explicit destination:
+`new APRSPacket(source, tocall, path, payload)`. The implicit KV4P constructor
+and `KV4P_HT_VENDOR_TOCALL` constant are removed; KV4P consumers must supply
+`"APKVPA"` themselves. `APRSIconType` is removed; keep UI symbol/icon mappings
+in the consuming application.
+
+Replace `Callbacks.showNotification(title, message)` with
+`Callbacks.onIncomingMessage(AprsEvent event)`. This receives an immutable value for each
+new message addressed to the local callsign, not duplicate receptions. The app
+chooses notification text and presentation. RF acknowledgements remain unchanged.
+
+Enable controller scheduling with
+`setPositionBeaconingEnabled(true, nowMs, intervalMs)`, using a positive interval.
+The first tick requests a beacon immediately. Disable with
+`setPositionBeaconingEnabled(false, nowMs, 0)`; scheduling is disabled initially.
+Alternatively, schedule beacons entirely in the app and record transmissions
+with `recordPositionBeacon(...)`.
 
 ## Verification
 
 Run `mvn clean verify -Dbasepom.javadoc.skip=false`, then `mvn install` to update
-Maven Local before rebuilding Android. The build disables Basepom's inherited
-SpotBugs exclusion list as well as removing the project-specific filter.
+Maven Local before rebuilding the consuming app. Verification includes tests,
+Checkstyle, SpotBugs, license checks, and Javadoc generation. The build disables
+Basepom's inherited SpotBugs exclusion list as well as the project-specific filter.
+
+In the app, verify duplicate receptions, acknowledgements/rejections, retries,
+beacon cadence, digipeater echo suppression, and RF-to-APRS-IS forwarding. Confirm
+repository updates replace events by ID, UI work is dispatched to the appropriate
+thread, and callback follow-up calls do not block or re-enter the controller.

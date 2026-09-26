@@ -12,9 +12,15 @@
 
 package io.github.dkaukov.aprs;
 
-/** User-facing APRS occurrence assembled from one or more physical packets. */
+import lombok.Builder;
+
+/**
+ * Immutable APRS occurrence assembled from one or more physical packets.
+ * Create with {@code builder()} and derive updated values with {@code toBuilder()}.
+ */
 @lombok.Getter
-@lombok.Setter
+@Builder(toBuilder = true)
+@lombok.AllArgsConstructor(access = lombok.AccessLevel.PRIVATE)
 public final class AprsEvent {
     public static final int UNKNOWN_TYPE = 0;
     public static final int MESSAGE_TYPE = 1;
@@ -30,78 +36,49 @@ public final class AprsEvent {
     public static final int DELIVERY_REJECTED = 3;
     public static final int DELIVERY_FAILED = 4;
 
-    long id;
+    private final long id;
 
-    int type;
+    private final int type;
     /** Stable event time used for history filtering, ordering, and display. */
-    long firstSeenMs;
+    private final long firstSeenMs;
     /** Latest associated packet time, used only for aggregation and duplicate detection. */
-    long lastSeenMs;
-    int packetCount;
+    private final long lastSeenMs;
+    private final int packetCount;
     /** Whether this station retransmitted at least one packet associated with this event. */
-    boolean digipeated;
+    private final boolean digipeated;
     /** Whether every received copy associated with this event came from APRS-IS. */
-    boolean internetOnly;
+    private final boolean internetOnly;
     /** Stable controller-generated key used to collapse recent duplicate observations. */
-    String dedupKey;
+    private final String dedupKey;
 
-    String fromCallsign;
-    String toCallsign;
-    String messageIdentifier;
-    String body;
-    double positionLat;
-    double positionLong;
-    String comment;
-    String objectName;
-    double temperature;
-    double humidity;
-    double pressure;
-    double rain;
-    double snow;
-    int windForce;
-    String windDirection;
-    String relayCallsign;
+    private final String fromCallsign;
+    private final String toCallsign;
+    private final String messageIdentifier;
+    private final String body;
+    private final double positionLat;
+    private final double positionLong;
+    private final String comment;
+    private final String objectName;
+    private final double temperature;
+    private final double humidity;
+    private final double pressure;
+    private final double rain;
+    private final double snow;
+    private final int windForce;
+    private final String windDirection;
+    private final String relayCallsign;
 
-    int deliveryState;
-    int transmitAttempts;
-    Long nextRetryAtMs;
-    public AprsEvent() {}
+    private final int deliveryState;
+    private final int transmitAttempts;
+    private final Long nextRetryAtMs;
 
-    public AprsEvent(AprsEvent source) {
-        copyFrom(source);
+    /** Mutable construction state; built events never retain a reference to it. */
+    public static class AprsEventBuilder {
+        // Lombok supplies the fluent field methods, build(), and toString().
     }
 
-    void copyFrom(AprsEvent source) {
-        id = source.id;
-        type = source.type;
-        firstSeenMs = source.firstSeenMs;
-        lastSeenMs = source.lastSeenMs;
-        packetCount = source.packetCount;
-        digipeated = source.digipeated;
-        internetOnly = source.internetOnly;
-        dedupKey = source.dedupKey;
-        fromCallsign = source.fromCallsign;
-        toCallsign = source.toCallsign;
-        messageIdentifier = source.messageIdentifier;
-        body = source.body;
-        positionLat = source.positionLat;
-        positionLong = source.positionLong;
-        comment = source.comment;
-        objectName = source.objectName;
-        temperature = source.temperature;
-        humidity = source.humidity;
-        pressure = source.pressure;
-        rain = source.rain;
-        snow = source.snow;
-        windForce = source.windForce;
-        windDirection = source.windDirection;
-        relayCallsign = source.relayCallsign;
-        deliveryState = source.deliveryState;
-        transmitAttempts = source.transmitAttempts;
-        nextRetryAtMs = source.nextRetryAtMs;
-    }
-
+    /** Returns this immutable value; no defensive copy is necessary. */
     public AprsEvent copy() {
-        return new AprsEvent(this);
+        return this;
     }
 }

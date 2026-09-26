@@ -27,7 +27,7 @@
     <version>0.1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>java-aprs</name>
-    <description>Platform-independent APRS protocol and domain library for KV4P HT</description>
+    <description>Platform-independent APRS protocol and domain library</description>
     <url>https://github.com/dkaukov/java-aprs</url>
 
     <licenses>

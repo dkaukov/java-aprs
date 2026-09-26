@@ -38,6 +38,7 @@
 package io.github.dkaukov.aprs.parser;
 
 import java.util.ArrayList;
+import java.util.Locale;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -100,11 +101,11 @@ public class Parser {
      */
     public static APRSPacket parse(final String packet) throws Exception {
         int cs = packet.indexOf('>');
-        String source = packet.substring(0,cs).toUpperCase();
+        String source = packet.substring(0,cs).toUpperCase(Locale.ROOT);
         int ms = packet.indexOf(':');
         String digiList = packet.substring(cs+1,ms);
         String[] digiTemp = digiList.split(",");
-        String dest = digiTemp[0].toUpperCase();
+        String dest = digiTemp[0].toUpperCase(Locale.ROOT);
         ArrayList<Digipeater> digis = Digipeater.parseList(digiList, false);
         String body = packet.substring(ms+1);
         APRSPacket ap = parseBody(source, dest, digis, body);
@@ -119,27 +120,56 @@ public class Parser {
      * @throws Exception
      */
         public static APRSPacket parseAX25(byte[] packet) throws Exception {
+            if (packet == null) {
+                throw new IllegalArgumentException("AX.25 packet must not be null");
+            }
             return parseAX25(packet, 0, packet.length);
         }
 
+        /**
+         * Parses only the specified AX.25 UI frame slice (without flags or FCS).
+         * @param packet backing buffer
+         * @param offset first frame byte
+         * @param len number of frame bytes
+         * @return parsed APRS packet
+         * @throws IllegalArgumentException if the slice or AX.25 header is invalid or truncated
+         * @throws Exception if the APRS payload cannot be parsed
+         */
         public static APRSPacket parseAX25(byte[] packet, int offset, int len) throws Exception {
-            int pos = 0;
-            String dest = new Callsign(packet, offset + pos).toString();
+            // Subtraction avoids overflow when callers supply very large offsets/lengths.
+            if (packet == null || offset < 0 || offset > packet.length
+                || len < 16 || len > packet.length - offset) {
+                throw new IllegalArgumentException("Invalid AX.25 frame slice");
+            }
+            int frameEnd = offset + len;
+            int pos = offset;
+            requireFrameBytes(pos, 7, frameEnd, "destination address");
+            String dest = new Callsign(packet, pos).toString();
             pos += 7;
-            String source = new Callsign(packet, offset + pos).toString();
+            requireFrameBytes(pos, 7, frameEnd, "source address");
+            String source = new Callsign(packet, pos).toString();
             pos += 7;
             ArrayList<Digipeater> digis = new ArrayList<Digipeater>();
-            while ((packet[offset + pos - 1] & 1) == 0) {
-                Digipeater d =new Digipeater(packet, offset + pos);
+            while ((packet[pos - 1] & 1) == 0) {
+                requireFrameBytes(pos, 7, frameEnd, "digipeater address");
+                Digipeater d = new Digipeater(packet, pos);
                 digis.add(d);
                 pos += 7;
             }
-            if (packet[offset + pos] != 0x03 || packet[offset + pos + 1] != -16 /*0xf0*/) {
+            requireFrameBytes(pos, 2, frameEnd, "control and PID");
+            if (packet[pos] != 0x03 || packet[pos + 1] != -16 /*0xf0*/) {
                 throw new IllegalArgumentException("control + pid must be 0x03 0xF0!");
             }
             pos += 2;
-            String body = new String(packet, offset + pos, len - pos, StandardCharsets.ISO_8859_1);
+            requireFrameBytes(pos, 1, frameEnd, "APRS data type identifier");
+            String body = new String(packet, pos, frameEnd - pos, StandardCharsets.ISO_8859_1);
             return parseBody(source, dest, digis, body);
+        }
+
+        private static void requireFrameBytes(int pos, int count, int frameEnd, String field) {
+            if (count > frameEnd - pos) {
+                throw new IllegalArgumentException("Truncated AX.25 " + field);
+            }
         }
 
     /**
@@ -219,7 +249,6 @@ public class Parser {
                     infoField.addAprsData(APRSTypes.T_OBJECT, of);
                     packet.setComment(of.getComment());
                 } else {
-                    System.err.println("Object packet body too short for valid object");
                     packet.setHasFault(true); // too short for an object
                 }
                 break;

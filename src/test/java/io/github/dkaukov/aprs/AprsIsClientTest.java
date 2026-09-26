@@ -34,11 +34,18 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertThrows;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.io.IOException;
+import java.io.StringWriter;
+import java.io.Writer;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.InvocationTargetException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -49,9 +56,140 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
 public class AprsIsClientTest {
+    @Test public void disablingTransmitDiscardsQueuedPacketsWithoutSuccess() throws Exception {
+        try (AprsIsClient client = idleClient()) {
+            AtomicInteger delivered = new AtomicInteger();
+            assertTrue(client.send("VK3ABC", "VK3ABC>APRS:>old", delivered::incrementAndGet));
+            client.setTransmitEnabled(false);
+            client.setTransmitEnabled(true);
+            StringWriter output = new StringWriter();
+            assertFalse(transmit(client, new BufferedWriter(output), invoke(client, "awaitConfiguration")));
+            assertEquals("", output.toString());
+            assertEquals(0, delivered.get());
+        }
+    }
+
+    @Test public void callsignChangesDiscardOldQueueAndCallbacks() throws Exception {
+        try (AprsIsClient client = idleClient()) {
+            AtomicInteger oldDelivered = new AtomicInteger();
+            assertTrue(client.send("VK3ABC", "VK3ABC>APRS:>old", oldDelivered::incrementAndGet));
+            client.setCallsign("VK3XYZ");
+            StringWriter output = new StringWriter();
+            assertFalse(transmit(client, new BufferedWriter(output), invoke(client, "awaitConfiguration")));
+            assertTrue(client.send("VK3XYZ", "VK3XYZ>APRS:>also old", oldDelivered::incrementAndGet));
+            AtomicInteger newDelivered = new AtomicInteger();
+            // send() can also change the authentication identity and must clear old work.
+            assertTrue(client.send("VK3NEW", "VK3NEW>APRS:>new", newDelivered::incrementAndGet));
+            assertTrue(transmit(client, new BufferedWriter(output), invoke(client, "awaitConfiguration")));
+            assertEquals("VK3NEW>APRS:>new\r\n", output.toString());
+            assertEquals(0, oldDelivered.get());
+            assertEquals(1, newDelivered.get());
+        }
+    }
+
+    @Test public void failedWriteRetainsHeadPacketAndCallbackUntilSuccessfulFlush() throws Exception {
+        try (AprsIsClient client = idleClient()) {
+            AtomicInteger delivered = new AtomicInteger();
+            assertTrue(client.send("VK3ABC", "VK3ABC>APRS:>first", delivered::incrementAndGet));
+            assertTrue(client.send("VK3ABC", "VK3ABC>APRS:>second", delivered::incrementAndGet));
+            Object configuration = invoke(client, "awaitConfiguration");
+            long generation = (Long) invoke(client, "pendingPacketGeneration");
+            BufferedWriter broken = new BufferedWriter(new Writer() {
+                @Override public void write(char[] buffer, int offset, int length) throws IOException {
+                    throw new IOException("injected write failure");
+                }
+                @Override public void flush() { }
+                @Override public void close() { }
+            });
+            assertThrows(IOException.class, () -> transmit(client, broken, configuration));
+            assertEquals(0, delivered.get());
+            assertEquals(generation, ((Long) invoke(client, "pendingPacketGeneration")).longValue());
+            StringWriter output = new StringWriter();
+            BufferedWriter writer = new BufferedWriter(output);
+            assertTrue(transmit(client, writer, configuration));
+            assertTrue(transmit(client, writer, configuration));
+            assertFalse(transmit(client, writer, configuration));
+            assertEquals("VK3ABC>APRS:>first\r\nVK3ABC>APRS:>second\r\n", output.toString());
+            assertEquals(2, delivered.get());
+        }
+    }
+
+    @Test public void receiveOnlySessionCannotDrainNewTransmitQueue() throws Exception {
+        try (AprsIsClient client = idleClient()) {
+            client.setTransmitEnabled(false);
+            client.setReceiveEnabled(true);
+            Object receiveOnly = invoke(client, "awaitConfiguration");
+            client.setTransmitEnabled(true);
+            AtomicInteger delivered = new AtomicInteger();
+            assertTrue(client.send("VK3ABC", "VK3ABC>APRS:>queued", delivered::incrementAndGet));
+            StringWriter output = new StringWriter();
+            BufferedWriter writer = new BufferedWriter(output);
+            transmit(client, writer, receiveOnly);
+            assertEquals("", output.toString());
+            assertEquals(0, delivered.get());
+            assertTrue(transmit(client, writer, invoke(client, "awaitConfiguration")));
+            assertEquals("VK3ABC>APRS:>queued\r\n", output.toString());
+            assertEquals(1, delivered.get());
+        }
+    }
+
+    @Test public void existingQueuedPacketDoesNotBypassReconnectBackoff() throws Exception {
+        try (AprsIsClient client = idleClient()) {
+            assertTrue(client.send("VK3ABC", "VK3ABC>APRS:>queued", null));
+            long queued = (Long) invoke(client, "pendingPacketGeneration");
+            long configuration = (Long) field(client, "configurationGeneration");
+            long start = System.nanoTime();
+            assertEquals(true, invoke(client, "awaitReconnect", 150L, configuration, queued));
+            assertTrue("Existing queue must not skip backoff", System.nanoTime() - start >= TimeUnit.MILLISECONDS.toNanos(120));
+            assertEquals(queued, ((Long) invoke(client, "pendingPacketGeneration")).longValue());
+        }
+    }
+
+    // Unit-test the queue state machine without socket timing or new production test APIs.
+    // Stop the initially disabled worker before enabling; loopback tests above/below cover sessions.
+    private static AprsIsClient idleClient() throws Exception {
+        AprsIsClient client = new AprsIsClient("test", "1.0");
+        ExecutorService worker = (ExecutorService) field(client, "worker");
+        worker.shutdownNow();
+        assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
+        client.setCallsign("VK3ABC");
+        client.setTransmitEnabled(true);
+        client.setEnabled(true);
+        return client;
+    }
+
+    private static Object field(AprsIsClient client, String name) throws Exception {
+        Field field = AprsIsClient.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(client);
+    }
+
+    private static boolean transmit(AprsIsClient client, BufferedWriter writer, Object configuration) throws Exception {
+        return (Boolean) invoke(client, "transmitPendingPacket", writer, configuration);
+    }
+
+    private static Object invoke(AprsIsClient client, String name, Object... arguments) throws Exception {
+        for (Method method : AprsIsClient.class.getDeclaredMethods()) {
+            if (method.getName().equals(name)) {
+                method.setAccessible(true);
+                try {
+                    return method.invoke(client, arguments);
+                } catch (InvocationTargetException error) {
+                    Throwable cause = error.getCause();
+                    if (cause instanceof Exception) {
+                        throw (Exception) cause;
+                    }
+                    throw error;
+                }
+            }
+        }
+        throw new NoSuchMethodException(name);
+    }
+
     @Test public void passcodeUsesBaseCallsign() {
         assertEquals(13023, AprsIsClient.passcode("N0CALL"));
         assertEquals(13023, AprsIsClient.passcode("n0call-10"));

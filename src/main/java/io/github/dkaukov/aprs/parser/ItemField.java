@@ -67,16 +67,6 @@ public final class ItemField extends APRSData {
         return ")" + this.objectName + (live ? "!" : "_") + comment;
     }
 
-    @Override
-    public int compareTo(APRSData o) {
-        if (this.hashCode() > o.hashCode()) {
-            return 1;
-        }
-        if (this.hashCode() == o.hashCode()) {
-            return 0;
-        }
-        return -1;
-    }
 
     @Override
     public boolean hasFault() {

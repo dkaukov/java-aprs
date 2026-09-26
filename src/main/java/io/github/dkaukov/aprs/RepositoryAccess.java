@@ -13,12 +13,12 @@
 package io.github.dkaukov.aprs;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.LongFunction;
 import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
-import java.util.stream.Collectors;
 
 /**
  * Controller-owned persistence boundary. Method bindings stay fixed while the
@@ -55,16 +55,15 @@ final class RepositoryAccess {
     }
 
     long insert(AprsEvent event) {
-        return insertEvent.applyAsLong(event.copy());
+        return insertEvent.applyAsLong(event);
     }
 
     void update(AprsEvent event) {
-        updateEvent.accept(event.copy());
+        updateEvent.accept(event);
     }
 
     List<AprsEvent> loadDueReliableEvents(long now) {
-        return loadDueEvents.apply(now).stream().map(AprsEvent::copy)
-            .collect(Collectors.toList());
+        return new ArrayList<>(loadDueEvents.apply(now));
     }
 
     Long loadNextReliableRetryAt() {
@@ -72,18 +71,14 @@ final class RepositoryAccess {
     }
 
     AprsEvent findById(long id) {
-        return snapshot(findEvent.apply(id));
+        return findEvent.apply(id);
     }
 
     AprsEvent findRecentByDedupKey(String key, long since) {
-        return snapshot(findRecent.apply(key, since));
+        return findRecent.apply(key, since);
     }
 
     AprsEvent findPendingOutgoingEvent(String local, String remote, String identifier) {
-        return snapshot(findPending.find(local, remote, identifier));
-    }
-
-    private static AprsEvent snapshot(AprsEvent event) {
-        return event == null ? null : event.copy();
+        return findPending.find(local, remote, identifier);
     }
 }

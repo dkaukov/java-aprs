@@ -78,9 +78,6 @@ public class InformationField implements Serializable {
     }
 
     public InformationField( byte[] rawBytes ) {
-        if ( rawBytes.length < 1 ) {
-            System.err.println("Parse error:  zero length information field");
-        }
         this.rawBytes = rawBytes.clone();
         this.dataTypeIdentifier = (char)rawBytes[0];
         this.dataFields = new HashMap<>();
