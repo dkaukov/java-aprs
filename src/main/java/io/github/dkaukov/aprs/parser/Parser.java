@@ -250,7 +250,7 @@ public class Parser {
     			try {
     				String innerBody = body.substring(1);
     				APRSPacket innerPacket = Parser.parse(innerBody);
-    				innerPacket.getDigipeaters().add(new Digipeater(source));
+				innerPacket.addDigipeater(new Digipeater(source));
     				ThirdPartyField thirdPartyField = new ThirdPartyField(msgBody, innerPacket);
     				infoField.addAprsData(APRSTypes.T_THIRDPARTY, thirdPartyField);
     				cursor = msgBody.length;
@@ -264,6 +264,7 @@ public class Parser {
     			break;
 
         }
+        packet.setPayload(infoField);
 		return packet;
     }
     

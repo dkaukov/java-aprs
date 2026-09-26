@@ -20,7 +20,15 @@
  */
 package io.github.dkaukov.aprs.parser;
 
-public class UnsupportedInfoField extends InformationField {
+public final class UnsupportedInfoField extends InformationField {
+    private UnsupportedInfoField(UnsupportedInfoField source) {
+        super(source);
+    }
+
+    @Override public UnsupportedInfoField copy() {
+        return new UnsupportedInfoField(this);
+    }
+
     private static final long serialVersionUID = 1L;
 
     public UnsupportedInfoField() {

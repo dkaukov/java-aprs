@@ -6,7 +6,17 @@ import java.util.Date;
 import java.util.Objects;
 import java.util.TimeZone;
 
-public class TimeField extends APRSData {
+public final class TimeField extends APRSData {
+
+    private TimeField(TimeField source) {
+        super(source);
+        this.reportedTimestamp = source.reportedTimestamp == null ? null : (Calendar) source.reportedTimestamp.clone();
+    }
+
+    @Override public TimeField copy() {
+        return new TimeField(this);
+    }
+
     private Calendar reportedTimestamp;
 
     public TimeField() {

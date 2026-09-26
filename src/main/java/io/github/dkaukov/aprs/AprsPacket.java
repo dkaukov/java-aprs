@@ -18,20 +18,47 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package io.github.dkaukov.aprs;
 
-/** Immutable transport history for one received or transmitted APRS packet. */
-public class AprsPacket {
-    public long id;
-    public Long eventId;
-    public long timestampMs;
-    public String source;
+/** Mutable transport history for one received or transmitted APRS packet. */
+@lombok.Getter
+@lombok.Setter
+public final class AprsPacket {
+    long id;
+    Long eventId;
+    long timestampMs;
+    String source;
     /** RF frequency in Hz, or {@code null} for non-RF sources. */
-    public Long frequencyHz;
-    public String fromCallsign;
-    public String ax25Destination;
+    Long frequencyHz;
+    String fromCallsign;
+    String ax25Destination;
     /** Comma-separated AX.25 digipeater path, retaining repeated-hop markers. */
-    public String path;
+    String path;
     /** Exact AX.25 frame bytes without FCS, KISS, or serial transport framing. */
-    public byte[] rawAx25;
+    byte[] rawAx25;
     /** Exact TNC2 packet line sent to or received from APRS-IS, without a line terminator. */
-    public String rawTnc2;
+    String rawTnc2;
+    public byte[] getRawAx25() {
+        return rawAx25 == null ? null : rawAx25.clone();
+    }
+
+    public void setRawAx25(byte[] value) {
+        rawAx25 = value == null ? null : value.clone();
+    }
+    public AprsPacket() {}
+
+    public AprsPacket(AprsPacket source) {
+        id = source.id;
+        eventId = source.eventId;
+        timestampMs = source.timestampMs;
+        this.source = source.source;
+        frequencyHz = source.frequencyHz;
+        fromCallsign = source.fromCallsign;
+        ax25Destination = source.ax25Destination;
+        path = source.path;
+        rawAx25 = source.rawAx25 == null ? null : source.rawAx25.clone();
+        rawTnc2 = source.rawTnc2;
+    }
+
+    public AprsPacket copy() {
+        return new AprsPacket(this);
+    }
 }

@@ -27,7 +27,19 @@ import java.io.Serializable;
  * @author johng
  * 
  */
-public class CourseAndSpeedExtension extends DataExtension implements Serializable {
+public final class CourseAndSpeedExtension extends DataExtension implements Serializable {
+
+    private CourseAndSpeedExtension(CourseAndSpeedExtension source) {
+        this.course = source.course;
+        this.speed = source.speed;
+    }
+
+    @Override public CourseAndSpeedExtension copy() {
+        return new CourseAndSpeedExtension(this);
+    }
+
+    public CourseAndSpeedExtension() {}
+
 	private static final long serialVersionUID = 1L;
 	private int course;
 	private int speed;

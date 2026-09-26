@@ -62,9 +62,8 @@
                 <groupId>com.github.spotbugs</groupId>
                 <artifactId>spotbugs-maven-plugin</artifactId>
                 <configuration>
-                    <excludeFilterFiles combine.children="append">
-                        <excludeFilterFile>${project.basedir}/config/spotbugs-exclude.xml</excludeFilterFile>
-                    </excludeFilterFiles>
+                    <!-- Analyze all findings, including rules excluded by Basepom. -->
+                    <excludeFilterFiles combine.self="override"/>
                 </configuration>
             </plugin>
         </plugins>

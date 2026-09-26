@@ -39,7 +39,24 @@ import java.util.stream.IntStream;
  * This class represents a complete APRS AX.25 packet, as found in a TNC2-style string:
  * SOURCE>DESTIN,VIA,VIA:payload
  */
-public class APRSPacket implements Serializable {
+public final class APRSPacket implements Serializable {
+    private APRSPacket(APRSPacket source) {
+        receivedTimestamp = new Date(source.receivedTimestamp.getTime());
+        originalString = source.originalString;
+        digipeaters = source.digipeaters.stream().map(Digipeater::copy)
+            .collect(Collectors.toCollection(ArrayList::new));
+        sourceCall = source.sourceCall;
+        destinationCall = source.destinationCall;
+        dti = source.dti;
+        payload = source.payload.copy();
+        hasFault = source.hasFault;
+        comment = source.comment;
+    }
+
+    public APRSPacket copy() {
+        return new APRSPacket(this);
+    }
+
 
 	public static final Set<String> Q_CONSTRUCTS = Set.of(
         "qac", "qax", "qau", "qao", "qas", "qar", "qaz", "qai");
@@ -63,8 +80,19 @@ public class APRSPacket implements Serializable {
     @Getter
     private final char dti;
 
-    @Getter
-    private final InformationField payload;
+    private InformationField payload;
+
+    public InformationField getPayload() {
+        return payload.copy();
+    }
+
+    /** Replaces parsed payload state with an owned snapshot of the same wire body. */
+    public void setPayload(InformationField value) {
+        if (!java.util.Arrays.equals(payload.getRawBytes(), value.getRawBytes())) {
+            throw new IllegalArgumentException("Payload wire bytes must match the packet");
+        }
+        payload = value.copy();
+    }
 
     @Setter
     private boolean hasFault;
@@ -77,7 +105,8 @@ public class APRSPacket implements Serializable {
         receivedTimestamp = new Date(System.currentTimeMillis());
         this.sourceCall = source.toUpperCase();
         this.destinationCall = destination.toUpperCase();
-		this.digipeaters = new ArrayList<>(Optional.ofNullable(digipeaters).orElse(List.of(new Digipeater("TCPIP*"))));
+		this.digipeaters = Optional.ofNullable(digipeaters).orElse(List.of(new Digipeater("TCPIP*")))
+            .stream().map(Digipeater::copy).collect(Collectors.toCollection(ArrayList::new));
         this.dti = (char) payload[0];
         this.payload = dti == ':' ? new MessagePacket(payload, destinationCall)
             : new InformationField(payload);
@@ -138,7 +167,11 @@ public class APRSPacket implements Serializable {
     }
 
     public List<Digipeater> getDigipeaters() {
-        return digipeaters;
+        return digipeaters.stream().map(Digipeater::copy).collect(Collectors.toUnmodifiableList());
+    }
+
+    public void addDigipeater(Digipeater digipeater) {
+        digipeaters.add(digipeater.copy());
     }
 
     public String getDigiString() {

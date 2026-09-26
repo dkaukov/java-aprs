@@ -22,6 +22,16 @@ import java.nio.charset.StandardCharsets;
 
 /** Text carried by an APRS status report (data type identifier {@code >}). */
 public final class StatusField extends APRSData {
+
+    private StatusField(StatusField source) {
+        super(source);
+        this.statusText = source.statusText;
+    }
+
+    @Override public StatusField copy() {
+        return new StatusField(this);
+    }
+
     private static final long serialVersionUID = 1L;
     private final String statusText;
 

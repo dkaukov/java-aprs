@@ -791,7 +791,8 @@ public class AprsControllerTest {
         }
 
         @Override public void update(AprsEvent event) {
-            // Mutable in-memory records already contain the update.
+            // Persist the supplied snapshot; the controller no longer edits stored records.
+            findById(event.id).copyFrom(event);
         }
 
         @Override public AprsEvent findById(long id) {

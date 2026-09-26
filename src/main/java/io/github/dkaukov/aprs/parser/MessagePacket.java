@@ -22,7 +22,20 @@ package io.github.dkaukov.aprs.parser;
 
 import java.nio.charset.StandardCharsets;
 
-public class MessagePacket extends InformationField {
+public final class MessagePacket extends InformationField {
+    private MessagePacket(MessagePacket source) {
+        super(source);
+        messageBody = source.messageBody;
+        messageNumber = source.messageNumber;
+        targetCallsign = source.targetCallsign;
+        isAck = source.isAck;
+        isRej = source.isRej;
+    }
+
+    @Override public MessagePacket copy() {
+        return new MessagePacket(this);
+    }
+
 	private static final long serialVersionUID = 1L;
     private String messageBody;
     private String messageNumber;

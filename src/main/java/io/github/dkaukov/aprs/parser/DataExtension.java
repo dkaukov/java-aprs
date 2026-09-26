@@ -33,6 +33,8 @@ package io.github.dkaukov.aprs.parser;
  * Wind Direction and Speed
  */
 public abstract class DataExtension {
+    /** Returns an independent copy of this extension. */
+    public abstract DataExtension copy();
 	public abstract String toSAEString();
 	public abstract APRSExtensions getType();
 }

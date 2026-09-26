@@ -19,7 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package io.github.dkaukov.aprs;
 
 /** User-facing APRS occurrence assembled from one or more physical packets. */
-public class AprsEvent {
+@lombok.Getter
+@lombok.Setter
+public final class AprsEvent {
     public static final int UNKNOWN_TYPE = 0;
     public static final int MESSAGE_TYPE = 1;
     public static final int OBJECT_TYPE = 2;
@@ -34,39 +36,78 @@ public class AprsEvent {
     public static final int DELIVERY_REJECTED = 3;
     public static final int DELIVERY_FAILED = 4;
 
-    public long id;
+    long id;
 
-    public int type;
+    int type;
     /** Stable event time used for history filtering, ordering, and display. */
-    public long firstSeenMs;
+    long firstSeenMs;
     /** Latest associated packet time, used only for aggregation and duplicate detection. */
-    public long lastSeenMs;
-    public int packetCount;
+    long lastSeenMs;
+    int packetCount;
     /** Whether this station retransmitted at least one packet associated with this event. */
-    public boolean digipeated;
+    boolean digipeated;
     /** Whether every received copy associated with this event came from APRS-IS. */
-    public boolean internetOnly;
+    boolean internetOnly;
     /** Stable controller-generated key used to collapse recent duplicate observations. */
-    public String dedupKey;
+    String dedupKey;
 
-    public String fromCallsign;
-    public String toCallsign;
-    public String messageIdentifier;
-    public String body;
-    public double positionLat;
-    public double positionLong;
-    public String comment;
-    public String objectName;
-    public double temperature;
-    public double humidity;
-    public double pressure;
-    public double rain;
-    public double snow;
-    public int windForce;
-    public String windDirection;
-    public String relayCallsign;
+    String fromCallsign;
+    String toCallsign;
+    String messageIdentifier;
+    String body;
+    double positionLat;
+    double positionLong;
+    String comment;
+    String objectName;
+    double temperature;
+    double humidity;
+    double pressure;
+    double rain;
+    double snow;
+    int windForce;
+    String windDirection;
+    String relayCallsign;
 
-    public int deliveryState;
-    public int transmitAttempts;
-    public Long nextRetryAtMs;
+    int deliveryState;
+    int transmitAttempts;
+    Long nextRetryAtMs;
+    public AprsEvent() {}
+
+    public AprsEvent(AprsEvent source) {
+        copyFrom(source);
+    }
+
+    void copyFrom(AprsEvent source) {
+        id = source.id;
+        type = source.type;
+        firstSeenMs = source.firstSeenMs;
+        lastSeenMs = source.lastSeenMs;
+        packetCount = source.packetCount;
+        digipeated = source.digipeated;
+        internetOnly = source.internetOnly;
+        dedupKey = source.dedupKey;
+        fromCallsign = source.fromCallsign;
+        toCallsign = source.toCallsign;
+        messageIdentifier = source.messageIdentifier;
+        body = source.body;
+        positionLat = source.positionLat;
+        positionLong = source.positionLong;
+        comment = source.comment;
+        objectName = source.objectName;
+        temperature = source.temperature;
+        humidity = source.humidity;
+        pressure = source.pressure;
+        rain = source.rain;
+        snow = source.snow;
+        windForce = source.windForce;
+        windDirection = source.windDirection;
+        relayCallsign = source.relayCallsign;
+        deliveryState = source.deliveryState;
+        transmitAttempts = source.transmitAttempts;
+        nextRetryAtMs = source.nextRetryAtMs;
+    }
+
+    public AprsEvent copy() {
+        return new AprsEvent(this);
+    }
 }

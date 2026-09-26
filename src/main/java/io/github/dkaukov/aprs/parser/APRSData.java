@@ -31,6 +31,18 @@ public abstract class APRSData implements java.io.Serializable, java.lang.Compar
 
     public APRSData() {}
 
+    protected APRSData(APRSData source) {
+        type = source.type;
+        hasFault = source.hasFault;
+        lastCursorPosition = source.lastCursorPosition;
+        rawBytes = source.rawBytes == null ? null : source.rawBytes.clone();
+        canMessage = source.canMessage;
+        comment = source.comment;
+    }
+
+    /** Returns an independent copy, including all mutable child objects. */
+    public abstract APRSData copy();
+
     public APRSData(byte[] msgBody) {
         rawBytes = new byte[msgBody.length];
         System.arraycopy(msgBody, 0, rawBytes, 0, msgBody.length);

@@ -120,7 +120,7 @@ public class ParserRegressionTest {
         assertEquals(reported, time.getReportedTimestamp().getTimeInMillis());
     }
 
-    @Test public void thirdPartyParsingStillUpdatesTheLiveDigipeaterPath() throws Exception {
+    @Test public void thirdPartyParsingRetainsTheAppendedDigipeater() throws Exception {
         APRSPacket packet = Parser.parse("VK3OUT>APRS:}VK3IN>APRS:>hello");
         ThirdPartyField thirdParty = (ThirdPartyField) packet.getPayload()
             .getAprsData(APRSTypes.T_THIRDPARTY);

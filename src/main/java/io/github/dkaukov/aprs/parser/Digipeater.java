@@ -29,6 +29,16 @@ import java.util.ArrayList;
  * 
  */
 public class Digipeater extends Callsign {
+    private Digipeater(Digipeater source) {
+        super(source.callsign);
+        ssid = source.ssid;
+        used = source.used;
+    }
+
+    public final Digipeater copy() {
+        return new Digipeater(this);
+    }
+
 	private static final long serialVersionUID = 1L;
     private boolean used;
     

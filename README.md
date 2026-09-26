@@ -15,9 +15,9 @@ status packets, station capabilities, third-party packets, and the controller/iG
 Keep its existing license headers when modifying it.
 
 Run `mvn clean verify` for tests and static analysis. SpotBugs findings fail the
-build. `config/spotbugs-exclude.xml` documents narrowly scoped exceptions for
-app-consumed DTO fields, intentionally shared mutable APIs, and data-only parser
-constructors. Fix new defects rather than broadening those exclusions. Raw APRS
+build, with no exclusion filters in the verification build. Parser APIs return
+deep snapshots and persistence exchanges copied records. See
+[MIGRATING.md](MIGRATING.md) for Android integration changes. Raw APRS
 payload conversions use ISO-8859-1 to preserve wire bytes; AX.25 callsigns and
 numeric protocol fields use ASCII.
 

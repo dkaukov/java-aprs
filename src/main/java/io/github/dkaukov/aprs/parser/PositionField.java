@@ -25,7 +25,20 @@ package io.github.dkaukov.aprs.parser;
 
 import java.util.Objects;
 
-public class PositionField extends APRSData {
+public final class PositionField extends APRSData {
+
+    private PositionField(PositionField source) {
+        super(source);
+        this.position = source.position == null ? null : source.position.copy();
+        this.positionSource = source.positionSource;
+        this.compressedFormat = source.compressedFormat;
+        this.extension = source.extension == null ? null : source.extension.copy();
+    }
+
+    @Override public PositionField copy() {
+        return new PositionField(this);
+    }
+
 	private static final long serialVersionUID = 1L;
 	private Position position = new Position(0, 0);
 	private String positionSource;
@@ -135,7 +148,7 @@ public class PositionField extends APRSData {
 	}
 
 	public PositionField(Position position, String comment) {
-		this.position = position;
+		this.position = position == null ? null : position.copy();
 		this.type = APRSTypes.T_POSITION;
 		// this.comment = comment;
 		compressedFormat = false;
@@ -188,28 +201,28 @@ public class PositionField extends APRSData {
 	 * @return the position
 	 */
 	public Position getPosition() {
-		return position;
+		return position == null ? null : position.copy();
 	}
 
 	/**
 	 * @param position the position to set
 	 */
 	public void setPosition(Position position) {
-		this.position = position;
+		this.position = position == null ? null : position.copy();
 	}
 
 	/**
 	 * @return DataExtension returns any data extension found in this packet
 	 */
 	public DataExtension getExtension() {
-		return extension;
+		return extension == null ? null : extension.copy();
 	}
 
 	/**
 	 * @param e data extension to add to this position
 	 */
 	public void setExtension( DataExtension e) {
-		this.extension = e;
+		this.extension = e == null ? null : e.copy();
 	}
 
 	@Override

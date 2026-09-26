@@ -3,7 +3,18 @@ package io.github.dkaukov.aprs.parser;
 import java.util.Objects;
 import java.nio.charset.StandardCharsets;
 
-public class ItemField extends APRSData {
+public final class ItemField extends APRSData {
+
+    private ItemField(ItemField source) {
+        super(source);
+        this.live = source.live;
+        this.objectName = source.objectName;
+    }
+
+    @Override public ItemField copy() {
+        return new ItemField(this);
+    }
+
 	private static final long serialVersionUID = 1L;
 	private boolean live = true;
 	private String objectName;

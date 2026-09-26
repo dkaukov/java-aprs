@@ -3,7 +3,20 @@ package io.github.dkaukov.aprs.parser;
 import java.util.Objects;
 import java.nio.charset.StandardCharsets;
 
-public class ObjectField extends APRSData {
+public final class ObjectField extends APRSData {
+
+    private ObjectField(ObjectField source) {
+        super(source);
+        this.objectName = source.objectName;
+        this.live = source.live;
+        this.timestamp = source.timestamp == null ? null : source.timestamp.copy();
+        this.position = source.position == null ? null : source.position.copy();
+    }
+
+    @Override public ObjectField copy() {
+        return new ObjectField(this);
+    }
+
 	private static final long serialVersionUID = 1L;
 	protected String objectName;
 	protected boolean live = true;
@@ -82,7 +95,7 @@ public class ObjectField extends APRSData {
 	 * @return the position carried by this APRS object
 	 */
 	public PositionField getPosition() {
-		return position;
+		return position == null ? null : position.copy();
 	}
 
 	

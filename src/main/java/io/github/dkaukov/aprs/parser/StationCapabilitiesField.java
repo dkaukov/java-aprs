@@ -25,6 +25,19 @@ import java.util.Locale;
 
 /** Station capabilities carried by the APRS {@code <} data type. */
 public final class StationCapabilitiesField extends APRSData {
+
+    private StationCapabilitiesField(StationCapabilitiesField source) {
+        super(source);
+        this.igate = source.igate;
+        this.messageCount = source.messageCount;
+        this.localStationCount = source.localStationCount;
+        this.displayText = source.displayText;
+    }
+
+    @Override public StationCapabilitiesField copy() {
+        return new StationCapabilitiesField(this);
+    }
+
     private static final long serialVersionUID = 1L;
 
     private final boolean igate;

@@ -22,7 +22,21 @@ package io.github.dkaukov.aprs.parser;
 
 import java.io.Serializable;
 
-public class PHGExtension extends DataExtension implements Serializable {
+public final class PHGExtension extends DataExtension implements Serializable {
+
+    private PHGExtension(PHGExtension source) {
+        this.power = source.power;
+        this.height = source.height;
+        this.gain = source.gain;
+        this.directivity = source.directivity;
+    }
+
+    @Override public PHGExtension copy() {
+        return new PHGExtension(this);
+    }
+
+    public PHGExtension() {}
+
 	private static final long serialVersionUID = 1L;
 	private static int[] powerCodes = {0,1,4,9,16,25,36,49,64,81};
 	private static int[] heightCodes = {10,20,40,80,160,320,640,1280,2560,5120};

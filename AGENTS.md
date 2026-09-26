@@ -35,8 +35,9 @@ legacy parser, which also uses tabs; avoid unrelated reformatting. Retain all
 existing license and attribution headers.
 
 The build inherits Basepom OSS checks. Checkstyle is explicitly skipped, and
-SpotBugs and license findings are configured as nonfatal. Review relevant
-findings when changing code.
+license findings are nonfatal. SpotBugs findings fail verification, with no
+exclusion filters. Preserve snapshot ownership when changing parser APIs; see
+`MIGRATING.md` for consumer integration requirements.
 
 ## Testing Guidelines
 

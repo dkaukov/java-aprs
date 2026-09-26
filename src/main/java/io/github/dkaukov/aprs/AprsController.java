@@ -61,12 +61,15 @@ public final class AprsController {
     private static final long RETRY_SCHEDULE_UNINITIALIZED = Long.MIN_VALUE;
     private static final long NO_RETRY_SCHEDULED = Long.MAX_VALUE;
 
-    /** Persistence boundary for immutable packet history. */
+    /** Persistence boundary; insert receives a detached snapshot and returns its assigned ID. */
     public interface PacketRepository {
         long insert(AprsPacket packet);
     }
 
-    /** Persistence boundary for user-visible APRS events and delivery state. */
+    /**
+     * Persistence boundary for user-visible events. Queries are copied by the controller;
+     * insert/update receive snapshots, so implementations must explicitly persist changes.
+     */
     public interface EventRepository {
         List<AprsEvent> loadDueReliableEvents(long now);
         Long loadNextReliableRetryAt();
@@ -102,8 +105,7 @@ public final class AprsController {
         boolean gateToAprsIs(String tnc2, Long eventId);
     }
 
-    private final PacketRepository packetRepository;
-    private final EventRepository eventRepository;
+    private final RepositoryAccess repositories;
     private final Executor executor;
     private final Callbacks callbacks;
     private final Map<String, Long> digipeatInputCache = new ConcurrentHashMap<>();
@@ -116,8 +118,7 @@ public final class AprsController {
 
     public AprsController(PacketRepository packetRepository, EventRepository eventRepository,
                           Executor executor, Callbacks callbacks) {
-        this.packetRepository = packetRepository;
-        this.eventRepository = eventRepository;
+        this.repositories = new RepositoryAccess(packetRepository, eventRepository);
         this.executor = executor;
         this.callbacks = callbacks;
     }
@@ -182,22 +183,22 @@ public final class AprsController {
 
     private AprsEvent persistPacket(AprsPacket packet, ParsedEvent parsed) {
         if (parsed == null) {
-            packetRepository.insert(packet);
+            repositories.insert(packet);
             return null;
         }
         if (parsed.acknowledgement || parsed.rejection) {
             return persistDeliveryResponse(packet, parsed);
         }
         if (parsed.event != null) return persistEvent(packet, parsed.event);
-        packetRepository.insert(packet);
+        repositories.insert(packet);
         return null;
     }
 
     private AprsEvent persistDeliveryResponse(AprsPacket packet, ParsedEvent response) {
-        AprsEvent event = eventRepository.findPendingOutgoingEvent(response.targetCallsign,
+        AprsEvent event = repositories.findPendingOutgoingEvent(response.targetCallsign,
             response.fromCallsign, response.messageIdentifier);
         if (event == null) {
-            packetRepository.insert(packet);
+            repositories.insert(packet);
             return null;
         }
         event.deliveryState = response.acknowledgement
@@ -208,15 +209,15 @@ public final class AprsController {
     }
 
     private AprsEvent persistEvent(AprsPacket packet, AprsEvent candidate) {
-        AprsEvent event = eventRepository.findRecentByDedupKey(candidate.dedupKey,
+        AprsEvent event = repositories.findRecentByDedupKey(candidate.dedupKey,
             candidate.lastSeenMs - duplicateWindowMs(candidate));
         boolean created = event == null;
         if (created) {
             candidate.packetCount = 1;
-            candidate.id = eventRepository.insert(candidate);
+            candidate.id = repositories.insert(candidate);
             event = candidate;
             packet.eventId = event.id;
-            packetRepository.insert(packet);
+            repositories.insert(packet);
         } else {
             mergeObservation(event, candidate);
             associatePacket(event, packet);
@@ -235,10 +236,10 @@ public final class AprsController {
 
     private void associatePacket(AprsEvent event, AprsPacket packet) {
         packet.eventId = event.id;
-        packetRepository.insert(packet);
+        repositories.insert(packet);
         event.packetCount++;
         event.lastSeenMs = Math.max(event.lastSeenMs, packet.timestampMs);
-        eventRepository.update(event);
+        repositories.update(event);
     }
 
     private void notifyAndAcknowledge(AprsEvent event, boolean notifyUser, String source) {
@@ -268,10 +269,10 @@ public final class AprsController {
                 APRSPacket frame = Parser.parse(tnc2);
                 AprsPacket packet = physicalPacket(frame, AprsSource.TX_APRS_IS, null, null, tnc2);
                 if (eventId == null) {
-                    packetRepository.insert(packet);
+                    repositories.insert(packet);
                 } else {
-                    AprsEvent event = eventRepository.findById(eventId);
-                    if (event == null) packetRepository.insert(packet);
+                    AprsEvent event = repositories.findById(eventId);
+                    if (event == null) repositories.insert(packet);
                     else associatePacket(event, packet);
                 }
             } catch (Exception ignored) {
@@ -289,12 +290,12 @@ public final class AprsController {
         AprsPacket packet = physicalPacket(transmission.packet, AprsSource.TX_RF,
             transmission.frequencyHz, transmission.rawAx25);
         if (eventId == null) {
-            packetRepository.insert(packet);
+            repositories.insert(packet);
             return;
         }
-        AprsEvent event = eventRepository.findById(eventId);
+        AprsEvent event = repositories.findById(eventId);
         if (event == null) {
-            packetRepository.insert(packet);
+            repositories.insert(packet);
         } else {
             event.digipeated |= digipeated;
             associatePacket(event, packet);
@@ -308,7 +309,7 @@ public final class AprsController {
             initializeReliableRetrySchedule();
             long retryAt = nextReliableRetryAt.get();
             if (retryAt != NO_RETRY_SCHEDULED && now >= retryAt) {
-                for (AprsEvent event : eventRepository.loadDueReliableEvents(now)) {
+                for (AprsEvent event : repositories.loadDueReliableEvents(now)) {
                     retryOrFail(event, now);
                     changed = true;
                 }
@@ -328,7 +329,7 @@ public final class AprsController {
     }
 
     private void reloadReliableRetrySchedule() {
-        Long retryAt = eventRepository.loadNextReliableRetryAt();
+        Long retryAt = repositories.loadNextReliableRetryAt();
         nextReliableRetryAt.set(retryAt == null ? NO_RETRY_SCHEDULED : retryAt);
     }
 
@@ -355,7 +356,7 @@ public final class AprsController {
                 AprsPacket packet = physicalPacket(transmission.packet, AprsSource.TX_RF,
                     transmission.frequencyHz, transmission.rawAx25);
                 packet.eventId = event.id;
-                packetRepository.insert(packet);
+                repositories.insert(packet);
                 event.packetCount++;
                 event.lastSeenMs = Math.max(event.lastSeenMs, packet.timestampMs);
                 event.transmitAttempts++;
@@ -364,7 +365,7 @@ public final class AprsController {
                     : now + RETRY_DELAYS_MS[event.transmitAttempts - 1];
             }
         }
-        eventRepository.update(event);
+        repositories.update(event);
     }
 
     /** Records a new outgoing chat event and its first transmitted packet. */
@@ -415,9 +416,9 @@ public final class AprsController {
         event.dedupKey = logicalPacketKey(frame);
         AprsPacket packet = physicalPacket(frame, AprsSource.TX_RF, frequencyHz, rawAx25);
         executor.execute(() -> {
-            event.id = eventRepository.insert(event);
+            event.id = repositories.insert(event);
             packet.eventId = event.id;
-            packetRepository.insert(packet);
+            repositories.insert(packet);
             includeInReliableRetrySchedule(event.nextRetryAtMs);
         });
     }

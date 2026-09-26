@@ -37,7 +37,7 @@ import java.util.Set;
  */
 public class InformationField implements Serializable {
 	private static final long serialVersionUID = 1L;
-    private final long createTimestamp = System.currentTimeMillis();
+    private long createTimestamp = System.currentTimeMillis();
 	private char dataTypeIdentifier;
     protected byte[] rawBytes;
 	protected boolean hasFault = false;
@@ -45,6 +45,22 @@ public class InformationField implements Serializable {
     Map<APRSTypes,APRSData> dataFields = new HashMap<>();
     DataExtension extension = null;
 	protected String comment = "";
+
+    protected InformationField(InformationField source) {
+        dataTypeIdentifier = source.dataTypeIdentifier;
+        rawBytes = source.rawBytes == null ? null : source.rawBytes.clone();
+        hasFault = source.hasFault;
+        canMessage = source.canMessage;
+        source.dataFields.forEach((type, value) -> dataFields.put(type, value.copy()));
+        extension = source.extension == null ? null : source.extension.copy();
+        comment = source.comment;
+        createTimestamp = source.createTimestamp;
+    }
+
+    /** Returns a deep snapshot; subclasses must preserve their additional state. */
+    public InformationField copy() {
+        return new InformationField(this);
+    }
 
     public InformationField() {
     }
@@ -143,7 +159,7 @@ public class InformationField implements Serializable {
 	 * @return the extension
 	 */
 	public final DataExtension getExtension() {
-		return extension;
+		return extension == null ? null : extension.copy();
 	}
 
     
@@ -159,7 +175,9 @@ public class InformationField implements Serializable {
      * @return Mapping of APRSTypes to APRSData
      */
     public Map<APRSTypes,APRSData> getAprsData() {
-		return this.dataFields;
+		Map<APRSTypes, APRSData> snapshot = new HashMap<>();
+        dataFields.forEach((type, value) -> snapshot.put(type, value.copy()));
+        return java.util.Collections.unmodifiableMap(snapshot);
 	}
 
     
@@ -169,7 +187,7 @@ public class InformationField implements Serializable {
      */
     public APRSData getAprsData(APRSTypes t) {
         if ( dataFields.containsKey(t)) {
-            return dataFields.get(t);
+            return dataFields.get(t).copy();
         }
         return null;
     }
@@ -180,7 +198,7 @@ public class InformationField implements Serializable {
      * @param data
      */
     public void addAprsData(APRSTypes type, APRSData data) {
-		dataFields.put(type, data);
+		dataFields.put(type, data.copy());
 	}
 
     
@@ -198,7 +216,7 @@ public class InformationField implements Serializable {
      * @return Set of APRSTypes
      */
     public Set<APRSTypes> getTypes() {
-        return dataFields.keySet();
+        return Set.copyOf(dataFields.keySet());
     }
 
 }

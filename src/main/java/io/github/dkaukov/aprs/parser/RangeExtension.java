@@ -26,7 +26,16 @@ import java.io.Serializable;
  * @author johng
  *
  */
-public class RangeExtension extends DataExtension implements Serializable {
+public final class RangeExtension extends DataExtension implements Serializable {
+
+    private RangeExtension(RangeExtension source) {
+        this.range = source.range;
+    }
+
+    @Override public RangeExtension copy() {
+        return new RangeExtension(this);
+    }
+
 	private static final long serialVersionUID = 1L;
 	private int range;
 	

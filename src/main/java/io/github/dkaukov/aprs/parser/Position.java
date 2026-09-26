@@ -31,6 +31,20 @@ import java.util.Locale;
  *
  */
 public class Position implements Serializable {
+    private Position(Position source) {
+        latitude = source.latitude;
+        longitude = source.longitude;
+        altitude = source.altitude;
+        positionAmbiguity = source.positionAmbiguity;
+        symbolTable = source.symbolTable;
+        symbolCode = source.symbolCode;
+        csTField = source.csTField;
+    }
+
+    public final Position copy() {
+        return new Position(this);
+    }
+
 	private static final long serialVersionUID = 1L;
 	private static DecimalFormat df = new DecimalFormat("0.00000");
 	private Double latitude = 0d, longitude = 0d;

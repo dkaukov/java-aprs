@@ -4,7 +4,30 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Objects;
 
-public class WeatherField extends APRSData {
+public final class WeatherField extends APRSData {
+
+    private WeatherField(WeatherField source) {
+        super(source);
+        this.windDirection = source.windDirection;
+        this.windSpeed = source.windSpeed;
+        this.windGust = source.windGust;
+        this.temp = source.temp;
+        this.rainLastHour = source.rainLastHour;
+        this.rainLast24Hours = source.rainLast24Hours;
+        this.rainSinceMidnight = source.rainSinceMidnight;
+        this.humidity = source.humidity;
+        this.pressure = source.pressure;
+        this.luminosity = source.luminosity;
+        this.snowfallLast24Hours = source.snowfallLast24Hours;
+        this.rawRainCounter = source.rawRainCounter;
+    }
+
+    @Override public WeatherField copy() {
+        return new WeatherField(this);
+    }
+
+    public WeatherField() {}
+
     private Integer windDirection;
     private Integer windSpeed;
     private Integer windGust;
