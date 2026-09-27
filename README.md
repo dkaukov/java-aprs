@@ -24,22 +24,22 @@ desugaring specifically for this library.
 
 ## Installation
 
-After `0.1.0` is released, use the Central artifact:
+After `0.2.0` is released, use the Central artifact:
 
 ```xml
 <dependency>
     <groupId>io.github.dkaukov</groupId>
     <artifactId>java-aprs</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
 ```kotlin
-implementation("io.github.dkaukov:java-aprs:0.1.0")
+implementation("io.github.dkaukov:java-aprs:0.2.0")
 ```
 
 For snapshot development, run `mvn clean install` and depend on
-`io.github.dkaukov:java-aprs:0.1.0-SNAPSHOT` from Maven Local. Snapshots are not
+`io.github.dkaukov:java-aprs:0.2.0-SNAPSHOT` from Maven Local. Snapshots are not
 published to Maven Central.
 
 ## Parse APRS packets

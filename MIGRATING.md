@@ -1,6 +1,17 @@
-# Consumer migration guide before 0.1.0
+# Consumer migration guide
 
-These changes require updating and recompiling consumers of the snapshot library,
+## Migrating from 0.1.0 to 0.2.0
+
+Version 0.2.0 changes the controller callback and beacon-data APIs. Update
+`Callbacks.onIncomingMessage(AprsEvent)` to
+`onIncomingMessage(AprsEvent, boolean)`, using `forLocal` to decide whether a message
+should trigger local presentation. `BeaconData` now requires non-null latitude and
+longitude, and rejects incomplete course/speed or weather wind pairs. A positioned-weather
+beacon cannot also carry normal course/speed data.
+
+## Historical: migration from pre-0.1 snapshots
+
+These historical changes require updating and recompiling consumers of the snapshot library,
 including the Android app. Update constructor calls, event persistence mappers,
 callback implementations, and beacon configuration before rebuilding.
 
@@ -213,8 +224,7 @@ with `recordPositionBeacon(...)`.
 
 Run `mvn clean verify -Dbasepom.javadoc.skip=false`, then `mvn install` to update
 Maven Local before rebuilding the consuming app. Verification includes tests,
-Checkstyle, SpotBugs, license checks, and Javadoc generation. The build disables
-Basepom's inherited SpotBugs exclusion list as well as the project-specific filter.
+Checkstyle, SpotBugs, license checks, and Javadoc generation.
 
 In the app, verify duplicate receptions, acknowledgements/rejections, retries,
 beacon cadence, digipeater echo suppression, and RF-to-APRS-IS forwarding. Confirm
