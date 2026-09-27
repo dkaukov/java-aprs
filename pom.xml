@@ -22,7 +22,7 @@
 
     <groupId>io.github.dkaukov</groupId>
     <artifactId>java-aprs</artifactId>
-    <version>0.2.2</version>
+    <version>0.2.3-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>java-aprs</name>
     <description>Platform-independent APRS protocol and domain library</description>
@@ -48,7 +48,7 @@
         <connection>scm:git:https://github.com/dkaukov/java-aprs.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/dkaukov/java-aprs.git</developerConnection>
         <url>https://github.com/dkaukov/java-aprs</url>
-        <tag>java-aprs-0.2.2</tag>
+        <tag>HEAD</tag>
     </scm>
 
     <properties>
