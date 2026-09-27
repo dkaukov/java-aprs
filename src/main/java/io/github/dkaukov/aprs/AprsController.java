@@ -722,20 +722,32 @@ public final class AprsController {
         updatePendingReliableEvent(event);
     }
 
-    private void submitPositionBeacon(BeaconData beacon) {
+    /**
+     * Builds, submits, and records one position or positioned-weather beacon.
+     *
+     * <p>The controller uses its configured callsign and TX envelope. A {@code false} result
+     * means that configuration or beacon data was invalid, or that the RF transport did not
+     * accept the generated packet. A {@code true} result records a TX_RF packet and event, but
+     * does not confirm on-air transmission or remote reception.</p>
+     *
+     * @param beacon application-supplied beacon content; latitude and longitude are required
+     * @return whether the RF transport accepted and the controller recorded the beacon
+     */
+    public synchronized boolean submitPositionBeacon(BeaconData beacon) {
         if (beacon == null || callsign.isEmpty() || txDestination.isEmpty()) {
-            return;
+            return false;
         }
         if (!isValidBeacon(beacon)) {
-            return;
+            return false;
         }
-        APRSPacket packet = new APRSPacket(callsign, txDestination, txPath,
-            encodeBeacon(beacon).getBytes(StandardCharsets.US_ASCII));
+        APRSPacket packet = new APRSPacket(callsign, txDestination, txPath, encodeBeacon(beacon).getBytes(StandardCharsets.US_ASCII));
         Transmission transmission = callbacks.submitRf(packet.copy());
-        if (transmission != null) {
-            recordPositionBeacon(callsign, beacon.getLatitude(), beacon.getLongitude(),
-                transmission.frequencyHz, transmission.packet, transmission.rawAx25);
+        if (transmission == null) {
+            return false;
         }
+        recordPositionBeacon(callsign, beacon.getLatitude(), beacon.getLongitude(),
+            transmission.frequencyHz, transmission.packet, transmission.rawAx25);
+        return true;
     }
 
     private String encodeBeacon(BeaconData beacon) {

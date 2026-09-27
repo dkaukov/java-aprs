@@ -127,8 +127,10 @@ controller.tick(System.currentTimeMillis());
 `tick()` drives reliable-message retries and final failure handling, plus optional
 controller-managed beacon cadence. Reliable messages retry after 15, 30, 60, 120, and
 240 seconds, followed by a 30-second final ACK grace period. Applications may instead
-schedule position beacons themselves and call `recordPositionBeacon(...)` after a real
-transport submission.
+schedule position beacons themselves and call `submitPositionBeacon(beacon)`. It builds the
+packet from `BeaconData`, submits it through `submitRf`, and records accepted submissions. Its
+boolean result means the local transport accepted the beacon, not that it was transmitted on air.
+Use `recordPositionBeacon(...)` only when the application has already submitted its own packet.
 
 ### Digipeating and iGate
 

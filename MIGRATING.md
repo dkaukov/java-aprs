@@ -217,8 +217,10 @@ Enable controller scheduling with
 `setPositionBeaconingEnabled(true, nowMs, intervalMs)`, using a positive interval.
 The first tick requests a beacon immediately. Disable with
 `setPositionBeaconingEnabled(false, nowMs, 0)`; scheduling is disabled initially.
-Alternatively, schedule beacons entirely in the app and record transmissions
-with `recordPositionBeacon(...)`.
+Alternatively, schedule beacons entirely in the app and call
+`submitPositionBeacon(BeaconData)`. It builds, submits, and records the beacon; `true` means
+the local RF transport accepted it. Retain `recordPositionBeacon(...)` only for packets the app
+has already submitted itself.
 
 ## Verification
 

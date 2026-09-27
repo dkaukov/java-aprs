@@ -784,6 +784,17 @@ public class AprsControllerTest {
         assertTrue(payload.startsWith("!3800.00N/14458.20E>"));
     }
 
+    @Test public void submitPositionBeaconReportsTransportAcceptance() {
+        Fixture f = fixture();
+        BeaconData beacon = BeaconData.builder().latitude(-37D).longitude(144D).build();
+
+        assertTrue(f.controller.submitPositionBeacon(beacon));
+        assertEquals(1, f.packets.records.size());
+        f.callbacks.retrySucceeds = false;
+        assertFalse(f.controller.submitPositionBeacon(beacon));
+        assertEquals(1, f.packets.records.size());
+    }
+
     @Test public void invalidBeaconValuesAreNotSubmitted() {
         assertInvalidBeaconIsSkipped(BeaconData.builder().build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(Double.NaN).longitude(144D).build());
@@ -819,10 +830,7 @@ public class AprsControllerTest {
 
     private void assertInvalidBeaconIsSkipped(BeaconData beacon) {
         Fixture f = fixture();
-        f.callbacks.beaconData = beacon;
-        f.controller.setPositionBeaconingEnabled(true, 0L, 60_000L);
-
-        f.controller.tick(0L);
+        assertFalse(f.controller.submitPositionBeacon(beacon));
 
         assertNull(f.callbacks.lastTransmission);
         assertTrue(f.packets.records.isEmpty());
