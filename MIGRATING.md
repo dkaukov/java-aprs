@@ -137,7 +137,10 @@ once and keeps its own retry cache current as it inserts or updates events. Do n
 modify pending reliable events through another controller or direct repository
 access while that controller is running. `inTransaction(...)` is an optional boundary for
 repositories that can atomically group related event and packet writes; its default
-implementation simply runs the supplied operation.
+implementation simply runs the supplied operation. It cannot roll back writes completed before
+an exception: a packet insert may remain if its related event update fails. Do not blindly retry
+a controller call after such a failure, because it may insert another packet or event; reconcile
+storage first or implement atomic transactions.
 
 ## Callback and packet ownership
 

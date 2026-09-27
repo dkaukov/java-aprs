@@ -92,6 +92,15 @@ controller. Repository calls are synchronous, so implementations may use an in-m
 store, JDBC, Room, or another persistence layer. `inTransaction(...)` defaults to a direct
 call for simple stores; override it to atomically persist related event and packet changes.
 
+### Repository failures
+
+The default transaction boundary cannot roll back a write that already succeeded. For example,
+if a packet insert succeeds and the related event update fails, the packet remains stored while
+the event retains its previous count/state. A transactional repository must roll back both
+writes. Do not blindly retry a controller call after a repository failure: it can create another
+packet or event. Reconcile persisted records first, or use an atomic `inTransaction(...)`
+implementation.
+
 Callbacks describe operations the application performs: obtaining the local callsign,
 handling a newly created addressed message, transmitting ACKs/retries/digipeats, making
 position beacons, and forwarding an accepted iGate line. A retry or digipeat callback

@@ -126,13 +126,19 @@ public final class AprsController {
         /**
          * Handles a newly created message addressed to {@link #getCallsign()}.
          *
-         * <p>This is not invoked for duplicate packet copies collapsed into an existing event.</p>
+         * <p>This is invoked after the event and its associated physical packet have been
+         * persisted. It is not invoked for duplicate packet copies collapsed into an existing
+         * event.</p>
          *
          * @param event immutable message event
          */
         void onIncomingMessage(AprsEvent event);
         /**
          * Sends the RF ACK for a received numbered message.
+         *
+         * <p>This is invoked after the received message and physical packet have been persisted.
+         * It can be invoked for a duplicate packet copy when the original event remains eligible
+         * for acknowledgement.</p>
          *
          * @param destination message origin callsign
          * @param messageIdentifier APRS message number being acknowledged
@@ -294,7 +300,11 @@ public final class AprsController {
 
     private void persistIncoming(APRSPacket frame, AprsPacket packet, ParsedEvent parsed,
                                  Transmission digipeated) {
-        AprsEvent event = repository.inTransaction(() -> persistPacket(packet, parsed));
+        PersistedEvent persisted = repository.inTransaction(() -> persistPacket(packet, parsed));
+        AprsEvent event = persisted.event;
+        if (event != null && event.getType() == AprsEvent.MESSAGE_TYPE) {
+            notifyAndAcknowledge(event, persisted.created, packet.getSource());
+        }
         if (digipeated != null) {
             recordTransmissionNow(event == null ? null : event.getId(), digipeated, true);
         }
@@ -303,19 +313,19 @@ public final class AprsController {
         }
     }
 
-    private AprsEvent persistPacket(AprsPacket packet, ParsedEvent parsed) {
+    private PersistedEvent persistPacket(AprsPacket packet, ParsedEvent parsed) {
         if (parsed == null) {
             repository.insert(packet);
-            return null;
+            return PersistedEvent.none();
         }
         if (parsed.acknowledgement || parsed.rejection) {
-            return persistDeliveryResponse(packet, parsed);
+            return PersistedEvent.existing(persistDeliveryResponse(packet, parsed));
         }
         if (parsed.event != null) {
             return persistEvent(packet, parsed.event);
         }
         repository.insert(packet);
-        return null;
+        return PersistedEvent.none();
     }
 
     private AprsEvent persistDeliveryResponse(AprsPacket packet, ParsedEvent response) {
@@ -331,7 +341,7 @@ public final class AprsController {
         return associatePacket(event, packet);
     }
 
-    private AprsEvent persistEvent(AprsPacket packet, AprsEvent candidate) {
+    private PersistedEvent persistEvent(AprsPacket packet, AprsEvent candidate) {
         AprsEvent event = repository.findRecentByDedupKey(candidate.getDedupKey(),
             candidate.getLastSeenMs() - duplicateWindowMs(candidate));
         boolean created = event == null;
@@ -344,10 +354,7 @@ public final class AprsController {
             event = mergeObservation(event, candidate);
             event = associatePacket(event, packet);
         }
-        if (event.getType() == AprsEvent.MESSAGE_TYPE) {
-            notifyAndAcknowledge(event, created, packet.getSource());
-        }
-        return event;
+        return new PersistedEvent(event, created);
     }
 
     private AprsEvent mergeObservation(AprsEvent event, AprsEvent observation) {
@@ -968,6 +975,25 @@ public final class AprsController {
             this.packet = packet;
             this.info = info;
             this.relayCallsign = relayCallsign;
+        }
+    }
+
+    /** Result of persistence work, retained until application callbacks can run after commit. */
+    private static final class PersistedEvent {
+        private final AprsEvent event;
+        private final boolean created;
+
+        private PersistedEvent(AprsEvent event, boolean created) {
+            this.event = event;
+            this.created = created;
+        }
+
+        private static PersistedEvent none() {
+            return new PersistedEvent(null, false);
+        }
+
+        private static PersistedEvent existing(AprsEvent event) {
+            return new PersistedEvent(event, false);
         }
     }
 
