@@ -181,9 +181,9 @@ and `KV4P_HT_VENDOR_TOCALL` constant are removed; KV4P consumers must supply
 in the consuming application.
 
 Replace `Callbacks.showNotification(title, message)` with
-`Callbacks.onIncomingMessage(AprsEvent event)`. This receives an immutable value for each
-new message addressed to the local callsign, not duplicate receptions. The app
-chooses notification text and presentation.
+`Callbacks.onIncomingMessage(AprsEvent event, boolean forLocal)`. This receives an immutable
+value for each new incoming message, not duplicate receptions. `forLocal` identifies messages
+addressed to the configured local callsign; the app chooses notification text and presentation.
 
 ## Controller-owned RF protocol operations
 

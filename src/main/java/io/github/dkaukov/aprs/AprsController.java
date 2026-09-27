@@ -123,15 +123,18 @@ public final class AprsController {
      */
     public interface Callbacks {
         /**
-         * Handles a newly created message addressed to the configured local callsign.
+         * Handles a newly created incoming APRS message.
          *
          * <p>This is invoked after the event and its associated physical packet have been
          * persisted. It is not invoked for duplicate packet copies collapsed into an existing
-         * event.</p>
+         * event. {@code forLocal} is {@code true} only when the message is addressed to the
+         * configured local callsign; applications can use it to decide whether to notify the
+         * user.</p>
          *
          * @param event immutable message event
+         * @param forLocal whether the message is addressed to the configured local callsign
          */
-        void onIncomingMessage(AprsEvent event);
+        void onIncomingMessage(AprsEvent event, boolean forLocal);
         /**
          * Submits the exact APRS packet selected by the controller to local RF transport.
          *
@@ -408,12 +411,13 @@ public final class AprsController {
     }
 
     private void notifyAndAcknowledge(AprsEvent event, boolean notifyUser, String source) {
-        if (callsign.isEmpty() || event.getToCallsign() == null
-            || !event.getToCallsign().trim().equalsIgnoreCase(callsign)) {
-            return;
-        }
+        boolean forLocal = !callsign.isEmpty() && event.getToCallsign() != null
+            && event.getToCallsign().trim().equalsIgnoreCase(callsign);
         if (notifyUser) {
-            callbacks.onIncomingMessage(event);
+            callbacks.onIncomingMessage(event, forLocal);
+        }
+        if (!forLocal) {
+            return;
         }
         if (AprsSource.RX_RF.equals(source) && event.getMessageIdentifier() != null
             && !event.getMessageIdentifier().trim().isEmpty()) {
@@ -788,6 +792,13 @@ public final class AprsController {
             || !isFiniteInRange(beacon.getLongitude(), -180D, 180D)) {
             return rejectBeacon("latitude/longitude must be finite and within APRS bounds");
         }
+        if (hasOnlyOne(beacon.getCourseDegrees(), beacon.getSpeedKnots())) {
+            return rejectBeacon("course and speed must be supplied together");
+        }
+        if (beacon.getWeather() != null
+            && (beacon.getCourseDegrees() != null || beacon.getSpeedKnots() != null)) {
+            return rejectBeacon("positioned weather cannot include normal course/speed");
+        }
         if (!isIntegerInRange(beacon.getCourseDegrees(), 0, 360)
             || !isRoundedInRange(beacon.getSpeedKnots(), 0, 999)) {
             return rejectBeacon("course must be 0..360 and speed must encode as 0..999 knots");
@@ -802,6 +813,9 @@ public final class AprsController {
     private boolean isValidWeather(BeaconData.WeatherData weather) {
         if (weather == null) {
             return true;
+        }
+        if (hasOnlyOne(weather.getWindDirectionDegrees(), weather.getWindSpeedKnots())) {
+            return rejectBeacon("weather wind direction and speed must be supplied together");
         }
         if (!isIntegerInRange(weather.getWindDirectionDegrees(), 0, 360)
             || !isIntegerInRange(weather.getWindSpeedKnots(), 0, 999)
@@ -822,8 +836,12 @@ public final class AprsController {
         return true;
     }
 
-    private boolean isFiniteInRange(double value, double minimum, double maximum) {
-        return Double.isFinite(value) && value >= minimum && value <= maximum;
+    private boolean isFiniteInRange(Double value, double minimum, double maximum) {
+        return value != null && Double.isFinite(value) && value >= minimum && value <= maximum;
+    }
+
+    private boolean hasOnlyOne(Object first, Object second) {
+        return first == null != (second == null);
     }
 
     private boolean isIntegerInRange(Integer value, int minimum, int maximum) {

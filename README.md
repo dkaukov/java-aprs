@@ -205,8 +205,8 @@ void onAx25Frame(byte[] frame) {
 }
 
 abstract class AndroidCallbacks implements AprsController.Callbacks {
-    @Override public void onIncomingMessage(AprsEvent event) {
-        mainHandler.post(() -> viewModel.onIncomingMessage(event));
+    @Override public void onIncomingMessage(AprsEvent event, boolean forLocal) {
+        mainHandler.post(() -> viewModel.onIncomingMessage(event, forLocal));
     }
 
     @Override public AprsController.Transmission submitRf(APRSPacket packet) {

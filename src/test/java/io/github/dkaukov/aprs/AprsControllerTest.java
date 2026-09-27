@@ -106,6 +106,17 @@ public class AprsControllerTest {
         assertFalse(f.callbacks.acknowledgementDuringTransaction);
     }
 
+    @Test public void incomingMessageCallbackMarksNonLocalMessages() {
+        Fixture f = fixture();
+        APRSPacket packet = directMessage("VK3ABC", "VK3OTHER", "hello", "A7");
+
+        f.controller.handle(packet, AprsSource.RX_RF, null, packet.toAX25Frame());
+
+        assertEquals(1, f.callbacks.notificationCount);
+        assertFalse(f.callbacks.lastIncomingMessageForLocal);
+        assertEquals(0, f.callbacks.acknowledgementCount);
+    }
+
     @Test public void controllerConstructsAcknowledgementFromConfiguredEnvelope() {
         Fixture f = fixture();
         f.controller.setTxDestination("apkva");
@@ -763,16 +774,25 @@ public class AprsControllerTest {
     }
 
     @Test public void invalidBeaconValuesAreNotSubmitted() {
+        assertInvalidBeaconIsSkipped(BeaconData.builder().build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(Double.NaN).longitude(144D).build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(180.001D).build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
             .courseDegrees(361).speedKnots(1D).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
+            .courseDegrees(1).build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
             .courseDegrees(1).speedKnots(999.6D).build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
             .altitudeMeters(Double.POSITIVE_INFINITY).build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
             .weather(BeaconData.WeatherData.builder().windGustKnots(1_000).build()).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
+            .weather(BeaconData.WeatherData.builder().windDirectionDegrees(225).build()).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
+            .courseDegrees(90).speedKnots(50D)
+            .weather(BeaconData.WeatherData.builder().windDirectionDegrees(225)
+                .windSpeedKnots(10).build()).build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
             .weather(BeaconData.WeatherData.builder().temperatureCelsius(600D).build()).build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
@@ -1301,6 +1321,7 @@ public class AprsControllerTest {
         int digipeatCount;
         int notificationCount;
         AprsEvent lastIncomingMessage;
+        boolean lastIncomingMessageForLocal;
         int acknowledgementCount;
         int igateCount;
         boolean retrySucceeds = true;
@@ -1317,10 +1338,11 @@ public class AprsControllerTest {
         boolean acknowledgementDuringTransaction;
         AprsController.Transmission lastTransmission;
 
-        @Override public void onIncomingMessage(AprsEvent event) {
+        @Override public void onIncomingMessage(AprsEvent event, boolean forLocal) {
             incomingMessageDuringTransaction = repository.transactionDepth > 0;
             notificationCount++;
             lastIncomingMessage = event;
+            lastIncomingMessageForLocal = forLocal;
         }
 
         @Override public AprsController.Transmission submitRf(APRSPacket packet) {
