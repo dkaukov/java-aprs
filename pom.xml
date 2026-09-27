@@ -63,6 +63,7 @@
         <dep.junit.version>4.13.2</dep.junit.version>
         <dep.lombok.version>1.18.46</dep.lombok.version>
         <dep.annotations.version>24.1.0</dep.annotations.version>
+        <dep.spotbugs-annotations.version>4.8.6</dep.spotbugs-annotations.version>
     </properties>
 
     <build>
@@ -88,6 +89,12 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <version>${dep.lombok.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs-annotations</artifactId>
+            <version>${dep.spotbugs-annotations.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>

@@ -204,10 +204,13 @@ controller-generated RF packets with `setCallsign(...)`, `setTxDestination(...)`
 `setTxPath(...)`. A blank callsign or missing destination disables automatic ACK generation;
 the library never supplies a vendor tocall default.
 
-Implement `submitRf(APRSPacket)` instead. It receives the concrete ACK, retry, or digipeated
-packet selected by the controller and returns a `Transmission` only when the local TNC/radio
-accepted it. It must not infer the packet's protocol purpose. A successful result is not RF
-delivery; matching APRS ACK packets still establish reliable-message delivery.
+Implement `submitRf(APRSPacket, Long)` instead. It receives the concrete ACK, retry, or
+digipeated packet selected by the controller plus an optional requested frequency in Hz. Retries
+use the initial persisted TX frequency; the transport may tune to it, decline it, or ignore it.
+Return an `RfTransmission` containing a `Transmission` only when the local TNC/radio accepted
+the packet. Without a transmission, `retryAllowed=false` cancels a reliable-message retry;
+otherwise it remains scheduled. A successful result is not RF delivery; matching APRS ACK
+packets still establish reliable-message delivery.
 
 Replace `gateToAprsIs(tnc2, eventId)` with `submitAprsIs(tnc2, onSuccess)`. Queue the supplied
 line, then run `onSuccess` only after APRS-IS socket submission succeeds. Do not record it merely
