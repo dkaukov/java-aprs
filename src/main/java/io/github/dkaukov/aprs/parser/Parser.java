@@ -243,7 +243,7 @@ public class Parser {
                     infoField.addAprsData(APRSTypes.T_POSITION, posField );
                     if ( posField.getPosition().getSymbolCode() == '_' && msgBody.length > 20) {
                         // with weather...
-                        WeatherField wf = WeatherParser.parseWeatherData(msgBody, cursor + 1);
+                        WeatherField wf = WeatherParser.parseWeatherData(msgBody, cursor);
                         infoField.addAprsData(APRSTypes.T_WX, wf);
                         cursor = wf.getLastCursorPosition();
                     }

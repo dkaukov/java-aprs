@@ -60,7 +60,11 @@ public final class AprsEvent {
     private final long firstSeenMs;
     /** Latest associated packet time, used only for aggregation and duplicate detection. */
     private final long lastSeenMs;
-    /** Number of physical packets associated with this logical occurrence. */
+    /**
+     * Number of physical packet observations associated with this logical occurrence.
+     * Controller-generated acknowledgement packets may be linked for history without increasing
+     * this count.
+     */
     private final int packetCount;
     /** Whether this station retransmitted at least one packet associated with this event. */
     private final boolean digipeated;

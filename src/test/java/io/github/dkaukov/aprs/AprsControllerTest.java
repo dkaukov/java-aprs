@@ -37,9 +37,12 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import io.github.dkaukov.aprs.parser.APRSPacket;
+import io.github.dkaukov.aprs.parser.APRSTypes;
 import io.github.dkaukov.aprs.parser.Digipeater;
 import io.github.dkaukov.aprs.parser.MessagePacket;
 import io.github.dkaukov.aprs.parser.Parser;
+import io.github.dkaukov.aprs.parser.PositionField;
+import io.github.dkaukov.aprs.parser.WeatherField;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
@@ -122,6 +125,9 @@ public class AprsControllerTest {
         assertTrue(new String(acknowledgement.getPayload().getRawBytes(),
             StandardCharsets.ISO_8859_1).endsWith("ackA7"));
         assertEquals(AprsSource.TX_RF, f.packets.records.get(1).getSource());
+        assertEquals(Long.valueOf(f.events.records.get(0).getId()),
+            f.packets.records.get(1).getEventId());
+        assertEquals(1, f.events.records.get(0).getPacketCount());
     }
 
     @Test public void missingIdentityOrDestinationSkipsAutomaticAcknowledgementAndIgate() {
@@ -210,7 +216,7 @@ public class AprsControllerTest {
         APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
         runConcurrently(16, () -> f.controller.handle(packet, AprsSource.RX_RF, null, null));
         assertEquals(1, f.events.records.size());
-        assertEquals(32, f.events.records.get(0).getPacketCount());
+        assertEquals(16, f.events.records.get(0).getPacketCount());
         assertEquals(32, f.packets.records.size());
         assertEquals(1, f.callbacks.notificationCount);
         assertEquals(16, f.callbacks.acknowledgementCount);
@@ -287,7 +293,7 @@ public class AprsControllerTest {
         assertEquals(AprsEvent.MESSAGE_TYPE, event.getType());
         assertEquals("A7", event.getMessageIdentifier());
         assertEquals("hello", event.getBody());
-        assertEquals(2, event.getPacketCount());
+        assertEquals(1, event.getPacketCount());
         assertEquals(Long.valueOf(event.getId()), packet.getEventId());
         assertEquals(AprsSource.RX_RF, packet.getSource());
         assertEquals(Long.valueOf(145_175_000L), packet.getFrequencyHz());
@@ -305,7 +311,7 @@ public class AprsControllerTest {
 
         assertEquals(4, f.packets.records.size());
         assertEquals(1, f.events.records.size());
-        assertEquals(4, f.events.records.get(0).getPacketCount());
+        assertEquals(2, f.events.records.get(0).getPacketCount());
         assertEquals(1, f.callbacks.notificationCount);
         assertEquals(2, f.callbacks.acknowledgementCount);
         assertEquals("VK3ABC", f.callbacks.lastIncomingMessage.getFromCallsign());
@@ -324,7 +330,7 @@ public class AprsControllerTest {
         f.controller.handle(frame, AprsSource.RX_RF, 144_390_000L, frame.toAX25Frame());
 
         assertEquals(1, f.events.records.size());
-        assertEquals(4, f.events.records.get(0).getPacketCount());
+        assertEquals(2, f.events.records.get(0).getPacketCount());
     }
 
     @Test public void copiesOfPositionViaDifferentPathsCollapseIntoOneEvent() throws Exception {
@@ -394,6 +400,22 @@ public class AprsControllerTest {
         assertTrue(event.isInternetOnly());
         assertEquals(-37.773, event.getPositionLat(), 0.00001);
         assertEquals(145.07917, event.getPositionLong(), 0.00001);
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void aprsIsReceivePropagatesTransactionFailure() {
+        Fixture f = fixture();
+        f.repository.failCommitAfterBody = true;
+
+        f.controller.handleAprsIsPacket("VK3ABC>APRS:>test");
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void aprsIsTransmissionRecordingPropagatesTransactionFailure() {
+        Fixture f = fixture();
+        f.repository.failCommitAfterBody = true;
+
+        f.controller.recordAprsIsTransmission(null, "VK3ME>APRS:>test");
     }
 
     @Test public void validUnsupportedPacketCreatesUnknownEventWithRawText() {
@@ -701,9 +723,78 @@ public class AprsControllerTest {
         assertEquals(2, f.callbacks.beaconCount);
     }
 
+    @Test public void generatedWeatherBeaconUsesWeatherSymbolAndRoundTrips() throws Exception {
+        Fixture f = fixture();
+        f.callbacks.beaconData = BeaconData.builder().latitude(-37.8608).longitude(144.9700)
+            .symbolCode('>').weather(BeaconData.WeatherData.builder()
+                .windDirectionDegrees(225).windSpeedKnots(10).windGustKnots(15)
+                .temperatureCelsius(20D).humidityPercent(60).pressureHectopascals(1013.2D)
+                .build()).build();
+        f.controller.setPositionBeaconingEnabled(true, 0L, 60_000L);
+
+        f.controller.tick(0L);
+
+        APRSPacket packet = Parser.parseAX25(f.callbacks.lastTransmission.getRawAx25());
+        PositionField position = (PositionField) packet.getPayload().getAprsData(APRSTypes.T_POSITION);
+        WeatherField weather = (WeatherField) packet.getPayload().getAprsData(APRSTypes.T_WX);
+        assertEquals('_', position.getPosition().getSymbolCode());
+        assertEquals(Integer.valueOf(225), weather.getWindDirection());
+        assertEquals(Integer.valueOf(10), weather.getWindSpeed());
+        AprsEvent event = f.events.records.get(0);
+        assertEquals(AprsEvent.WEATHER_TYPE, event.getType());
+        assertEquals(-37.86083D, event.getPositionLat(), 0.00001D);
+        assertEquals(144.97000D, event.getPositionLong(), 0.00001D);
+        assertEquals(68D, event.getTemperature(), 0D);
+        assertEquals(60D, event.getHumidity(), 0D);
+        assertEquals(1013.2D, event.getPressure(), 0D);
+    }
+
+    @Test public void beaconCoordinatesRoundAcrossMinuteBoundary() {
+        Fixture f = fixture();
+        f.callbacks.beaconData = BeaconData.builder().latitude(37.999999D).longitude(144.9700D)
+            .build();
+        f.controller.setPositionBeaconingEnabled(true, 0L, 60_000L);
+
+        f.controller.tick(0L);
+
+        String payload = new String(f.callbacks.lastTransmission.getPacket().getPayload().getRawBytes(),
+            StandardCharsets.US_ASCII);
+        assertTrue(payload.startsWith("!3800.00N/14458.20E>"));
+    }
+
+    @Test public void invalidBeaconValuesAreNotSubmitted() {
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(Double.NaN).longitude(144D).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(180.001D).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
+            .courseDegrees(361).speedKnots(1D).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
+            .courseDegrees(1).speedKnots(999.6D).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
+            .altitudeMeters(Double.POSITIVE_INFINITY).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
+            .weather(BeaconData.WeatherData.builder().windGustKnots(1_000).build()).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
+            .weather(BeaconData.WeatherData.builder().temperatureCelsius(600D).build()).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
+            .weather(BeaconData.WeatherData.builder().humidityPercent(0).build()).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
+            .weather(BeaconData.WeatherData.builder().pressureHectopascals(10_000D).build()).build());
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void beaconIntervalMustBePositive() {
         fixture().controller.setPositionBeaconingEnabled(true, 0L, 0L);
+    }
+
+    private void assertInvalidBeaconIsSkipped(BeaconData beacon) {
+        Fixture f = fixture();
+        f.callbacks.beaconData = beacon;
+        f.controller.setPositionBeaconingEnabled(true, 0L, 60_000L);
+
+        f.controller.tick(0L);
+
+        assertNull(f.callbacks.lastTransmission);
+        assertTrue(f.packets.records.isEmpty());
     }
 
     @Test public void futurePersistedRetryIsLoadedOnceAndRetriedAtItsDeadline() {
@@ -746,7 +837,7 @@ public class AprsControllerTest {
         assertEquals(1, f.callbacks.digipeatCount);
         assertEquals(5, f.packets.records.size());
         assertEquals(1, f.events.records.size());
-        assertEquals(5, f.events.records.get(0).getPacketCount());
+        assertEquals(3, f.events.records.get(0).getPacketCount());
         assertTrue(f.events.records.get(0).isDigipeated());
     }
 
@@ -1220,6 +1311,7 @@ public class AprsControllerTest {
         Runnable lastIgateSuccess;
         Runnable onGetCallsign;
         boolean mutateTransmittedPacket;
+        BeaconData beaconData;
         FakeRepository repository;
         boolean incomingMessageDuringTransaction;
         boolean acknowledgementDuringTransaction;
@@ -1252,7 +1344,7 @@ public class AprsControllerTest {
 
         @Override public BeaconData getBeaconData() {
             beaconCount++;
-            return null;
+            return beaconData;
         }
 
         private AprsController.Transmission transmission(APRSPacket packet) {

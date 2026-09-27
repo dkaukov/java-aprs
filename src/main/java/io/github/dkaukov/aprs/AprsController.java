@@ -19,6 +19,7 @@ import io.github.dkaukov.aprs.parser.InformationField;
 import io.github.dkaukov.aprs.parser.MessagePacket;
 import io.github.dkaukov.aprs.parser.ObjectField;
 import io.github.dkaukov.aprs.parser.Parser;
+import io.github.dkaukov.aprs.parser.Position;
 import io.github.dkaukov.aprs.parser.PositionField;
 import io.github.dkaukov.aprs.parser.StationCapabilitiesField;
 import io.github.dkaukov.aprs.parser.StatusField;
@@ -291,11 +292,14 @@ public final class AprsController {
         if (tnc2 == null || tnc2.trim().isEmpty()) {
             return;
         }
+        APRSPacket frame;
         try {
-            handleDecoded(Parser.parse(tnc2), AprsSource.RX_APRS_IS, null, null, tnc2);
+            frame = Parser.parse(tnc2);
         } catch (Exception ignored) {
             // Ignore malformed Internet input just as the RF parser ignores malformed frames.
+            return;
         }
+        handleDecoded(frame, AprsSource.RX_APRS_IS, null, null, tnc2);
     }
 
     private void handleDecoded(APRSPacket packet, String source, Long frequencyHz,
@@ -387,11 +391,18 @@ public final class AprsController {
     }
 
     private AprsEvent associatePacket(AprsEvent event, AprsPacket packet) {
+        return associatePacket(event, packet, true);
+    }
+
+    private AprsEvent associatePacket(AprsEvent event, AprsPacket packet,
+                                      boolean countAsObservation) {
         packet = packet.toBuilder().eventId(event.getId()).build();
         repository.insert(packet);
-        event = event.toBuilder().packetCount(event.getPacketCount() + 1)
-            .lastSeenMs(Math.max(event.getLastSeenMs(), packet.getTimestampMs())).build();
-        repository.update(event);
+        if (countAsObservation) {
+            event = event.toBuilder().packetCount(event.getPacketCount() + 1)
+                .lastSeenMs(Math.max(event.getLastSeenMs(), packet.getTimestampMs())).build();
+            repository.update(event);
+        }
         repository.onEventPersisted(event);
         return event;
     }
@@ -419,7 +430,7 @@ public final class AprsController {
             MessagePacket.createMessagePayload(event.getFromCallsign(), "ack" + event.getMessageIdentifier(), null));
         Transmission transmission = callbacks.submitRf(acknowledgement.copy());
         if (transmission != null) {
-            recordTransmissionNow(event.getId(), transmission);
+            recordTransmissionNow(event.getId(), transmission, false, false);
         }
     }
 
@@ -452,36 +463,43 @@ public final class AprsController {
      * @param tnc2 transmitted TNC2 line without a line terminator
      */
     public synchronized void recordAprsIsTransmission(Long eventId, String tnc2) {
+        APRSPacket frame;
         try {
-            APRSPacket frame = Parser.parse(tnc2);
-            AprsPacket packet = physicalPacket(frame, AprsSource.TX_APRS_IS, null, null, tnc2);
-            AprsEvent updated = repository.inTransaction(() -> {
-                if (eventId == null) {
+            frame = Parser.parse(tnc2);
+        } catch (Exception ex) {
+            LOG.log(Level.FINE, "Ignoring malformed transmitted APRS-IS line", ex);
+            return;
+        }
+        AprsPacket packet = physicalPacket(frame, AprsSource.TX_APRS_IS, null, null, tnc2);
+        AprsEvent updated = repository.inTransaction(() -> {
+            if (eventId == null) {
+                repository.insert(packet);
+                return null;
+            } else {
+                AprsEvent event = repository.findById(eventId);
+                if (event == null) {
                     repository.insert(packet);
                     return null;
                 } else {
-                    AprsEvent event = repository.findById(eventId);
-                    if (event == null) {
-                        repository.insert(packet);
-                        return null;
-                    } else {
-                        return associatePacket(event, packet);
-                    }
+                    return associatePacket(event, packet);
                 }
-            });
-            if (updated != null) {
-                updatePendingReliableEvent(updated);
             }
-        } catch (Exception ex) {
-            LOG.log(Level.FINE, "Ignoring malformed transmitted APRS-IS line", ex);
+        });
+        if (updated != null) {
+            updatePendingReliableEvent(updated);
         }
     }
 
     private void recordTransmissionNow(Long eventId, Transmission transmission) {
-        recordTransmissionNow(eventId, transmission, false);
+        recordTransmissionNow(eventId, transmission, false, true);
     }
 
     private void recordTransmissionNow(Long eventId, Transmission transmission, boolean digipeated) {
+        recordTransmissionNow(eventId, transmission, digipeated, true);
+    }
+
+    private void recordTransmissionNow(Long eventId, Transmission transmission, boolean digipeated,
+                                       boolean countAsObservation) {
         AprsPacket packet = physicalPacket(transmission.packet, AprsSource.TX_RF, transmission.frequencyHz, transmission.rawAx25);
         AprsEvent updated = repository.inTransaction(() -> {
             if (eventId == null) {
@@ -493,7 +511,7 @@ public final class AprsController {
                 repository.insert(packet);
             } else {
                 event = event.toBuilder().digipeated(event.isDigipeated() || digipeated).build();
-                return associatePacket(event, packet);
+                return associatePacket(event, packet, countAsObservation);
             }
             return null;
         });
@@ -648,7 +666,8 @@ public final class AprsController {
     }
 
     /**
-     * Records a newly submitted outgoing position beacon and its first RF packet.
+     * Records a newly submitted outgoing position or positioned-weather beacon and its first RF
+     * packet.
      *
      * <p>This method records a transport submission; it does not request or perform one, and does
      * not confirm on-air transmission.</p>
@@ -661,16 +680,26 @@ public final class AprsController {
      * @param rawAx25 AX.25 UI frame accepted by the transport, without FCS, flags, or KISS framing
      */
     public synchronized void recordPositionBeacon(String callsign, double latitude, double longitude, Long frequencyHz, APRSPacket packet, byte[] rawAx25) {
+        persistOutgoingEvent(outgoingPositionEvent(callsign, latitude, longitude, packet, rawAx25),
+            packet, frequencyHz, rawAx25);
+    }
+
+    private AprsEvent outgoingPositionEvent(String callsign, double latitude, double longitude,
+                                            APRSPacket packet, byte[] rawAx25) {
+        try {
+            APRSPacket decoded = Parser.parseAX25(rawAx25 == null ? packet.toAX25Frame() : rawAx25);
+            PacketContext context = unwrap(decoded);
+            ParsedEvent parsed = context == null ? null : parseEvent(context);
+            if (parsed != null && parsed.event != null) {
+                return parsed.event.toBuilder().packetCount(1).build();
+            }
+        } catch (Exception ex) {
+            LOG.log(Level.FINE, "Unable to decode submitted position beacon", ex);
+        }
         long now = clock.millis();
-        AprsEvent.AprsEventBuilder event = AprsEvent.builder();
-        event.type(AprsEvent.POSITION_TYPE);
-        event.firstSeenMs(now);
-        event.lastSeenMs(now);
-        event.packetCount(1);
-        event.fromCallsign(callsign);
-        event.positionLat(latitude);
-        event.positionLong(longitude);
-        persistOutgoingEvent(event.build(), packet, frequencyHz, rawAx25);
+        return AprsEvent.builder().type(AprsEvent.POSITION_TYPE).firstSeenMs(now).lastSeenMs(now)
+            .packetCount(1).fromCallsign(callsign).positionLat(latitude).positionLong(longitude)
+            .build();
     }
 
     private void persistOutgoingEvent(AprsEvent event, APRSPacket frame, Long frequencyHz, byte[] rawAx25) {
@@ -693,6 +722,9 @@ public final class AprsController {
         if (beacon == null || callsign.isEmpty() || txDestination.isEmpty()) {
             return;
         }
+        if (!isValidBeacon(beacon)) {
+            return;
+        }
         APRSPacket packet = new APRSPacket(callsign, txDestination, txPath,
             encodeBeacon(beacon).getBytes(StandardCharsets.US_ASCII));
         Transmission transmission = callbacks.submitRf(packet.copy());
@@ -704,9 +736,13 @@ public final class AprsController {
 
     private String encodeBeacon(BeaconData beacon) {
         char table = beacon.getSymbolTable() == null ? '/' : beacon.getSymbolTable();
-        char code = beacon.getSymbolCode() == null ? '>' : beacon.getSymbolCode();
-        StringBuilder value = new StringBuilder("!").append(formatLatitude(beacon.getLatitude()))
-            .append(table).append(formatLongitude(beacon.getLongitude())).append(code);
+        char code = beacon.getWeather() == null
+            ? beacon.getSymbolCode() == null ? '>' : beacon.getSymbolCode() : '_';
+        Position coordinateFormatter = new Position(0D, 0D);
+        StringBuilder value = new StringBuilder("!")
+            .append(coordinateFormatter.getDMS(beacon.getLatitude(), true))
+            .append(table).append(coordinateFormatter.getDMS(beacon.getLongitude(), false))
+            .append(code);
         if (beacon.getCourseDegrees() != null && beacon.getSpeedKnots() != null) {
             value.append(String.format(Locale.ROOT, "%03d/%03d", beacon.getCourseDegrees(),
                 Math.round(beacon.getSpeedKnots())));
@@ -726,7 +762,6 @@ public final class AprsController {
         if (weather == null) {
             return;
         }
-        value.append('_');
         if (weather.getWindDirectionDegrees() != null && weather.getWindSpeedKnots() != null) {
             value.append(String.format(Locale.ROOT, "%03d/%03d", weather.getWindDirectionDegrees(),
                 weather.getWindSpeedKnots()));
@@ -748,20 +783,61 @@ public final class AprsController {
         }
     }
 
-    private String formatLatitude(double value) {
-        return formatCoordinate(value, true);
+    private boolean isValidBeacon(BeaconData beacon) {
+        if (!isFiniteInRange(beacon.getLatitude(), -90D, 90D)
+            || !isFiniteInRange(beacon.getLongitude(), -180D, 180D)) {
+            return rejectBeacon("latitude/longitude must be finite and within APRS bounds");
+        }
+        if (!isIntegerInRange(beacon.getCourseDegrees(), 0, 360)
+            || !isRoundedInRange(beacon.getSpeedKnots(), 0, 999)) {
+            return rejectBeacon("course must be 0..360 and speed must encode as 0..999 knots");
+        }
+        if (beacon.getAltitudeMeters() != null
+            && !isRoundedInRange(beacon.getAltitudeMeters() * 3.28084D, 0, 999_999)) {
+            return rejectBeacon("altitude must encode as 0..999999 feet");
+        }
+        return isValidWeather(beacon.getWeather());
     }
 
-    private String formatLongitude(double value) {
-        return formatCoordinate(value, false);
+    private boolean isValidWeather(BeaconData.WeatherData weather) {
+        if (weather == null) {
+            return true;
+        }
+        if (!isIntegerInRange(weather.getWindDirectionDegrees(), 0, 360)
+            || !isIntegerInRange(weather.getWindSpeedKnots(), 0, 999)
+            || !isIntegerInRange(weather.getWindGustKnots(), 0, 999)) {
+            return rejectBeacon("weather wind fields must fit their APRS ranges");
+        }
+        if (weather.getTemperatureCelsius() != null
+            && !isRoundedInRange(weather.getTemperatureCelsius() * 9D / 5D + 32D, -99, 999)) {
+            return rejectBeacon("weather temperature must encode as -99..999 Fahrenheit");
+        }
+        if (!isIntegerInRange(weather.getHumidityPercent(), 1, 100)) {
+            return rejectBeacon("weather humidity must be 1..100 percent");
+        }
+        if (weather.getPressureHectopascals() != null
+            && !isRoundedInRange(weather.getPressureHectopascals() * 10D, 0, 99_999)) {
+            return rejectBeacon("weather pressure must encode as 0..99999 tenths of a hectopascal");
+        }
+        return true;
     }
 
-    private String formatCoordinate(double value, boolean latitude) {
-        double absolute = Math.abs(value);
-        int degrees = (int) absolute;
-        double minutes = (absolute - degrees) * 60D;
-        return String.format(Locale.ROOT, latitude ? "%02d%05.2f%c" : "%03d%05.2f%c",
-            degrees, minutes, latitude ? value < 0 ? 'S' : 'N' : value < 0 ? 'W' : 'E');
+    private boolean isFiniteInRange(double value, double minimum, double maximum) {
+        return Double.isFinite(value) && value >= minimum && value <= maximum;
+    }
+
+    private boolean isIntegerInRange(Integer value, int minimum, int maximum) {
+        return value == null || value >= minimum && value <= maximum;
+    }
+
+    private boolean isRoundedInRange(Double value, long minimum, long maximum) {
+        return value == null || Double.isFinite(value) && Math.round(value) >= minimum
+            && Math.round(value) <= maximum;
+    }
+
+    private boolean rejectBeacon(String reason) {
+        LOG.warning("Skipping invalid position beacon: " + reason);
+        return false;
     }
 
     private void loadPendingReliableEvents() {

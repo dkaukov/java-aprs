@@ -20,24 +20,28 @@ import lombok.Data;
  *
  * <p>Latitude and longitude are required. All boxed fields are optional: {@code null} means do
  * not include that APRS extension in the generated packet. Symbol values default to {@code '/'}
- * and {@code '>'} when omitted.</p>
+ * and {@code '>'} when omitted. Supplying weather produces an APRS
+ * positioned-weather beacon and therefore uses {@code '_'} as its symbol code.</p>
  */
 @Data
 @Builder(toBuilder = true)
 public final class BeaconData {
-    /** Latitude in decimal degrees. */
+    /** Latitude in decimal degrees; must be finite and in the range -90 through 90. */
     private final double latitude;
-    /** Longitude in decimal degrees. */
+    /** Longitude in decimal degrees; must be finite and in the range -180 through 180. */
     private final double longitude;
     /** APRS symbol-table identifier, or {@code null} for the primary table. */
     private final Character symbolTable;
-    /** APRS symbol code, or {@code null} for the car symbol. */
+    /**
+     * APRS symbol code, or {@code null} for the car symbol. Ignored for positioned-weather
+     * beacons, which use {@code '_'} as required by APRS.
+     */
     private final Character symbolCode;
-    /** Altitude in metres, or {@code null} to omit altitude. */
+    /** Altitude in metres, or {@code null} to omit altitude; it must fit APRS's six-digit feet field. */
     private final Double altitudeMeters;
-    /** Ground speed in knots, or {@code null} when course/speed is unavailable. */
+    /** Ground speed in knots, or {@code null} when course/speed is unavailable; rounds to 0 through 999. */
     private final Double speedKnots;
-    /** Course in degrees true, or {@code null} when course/speed is unavailable. */
+    /** Course in degrees true, or {@code null} when course/speed is unavailable; valid range is 0 through 360. */
     private final Integer courseDegrees;
     /** Optional APRS comment appended after extensions. */
     private final String comment;
@@ -53,17 +57,17 @@ public final class BeaconData {
     @Data
     @Builder(toBuilder = true)
     public static final class WeatherData {
-        /** Wind direction in degrees true, or {@code null}. */
+        /** Wind direction in degrees true, or {@code null}; valid range is 0 through 360. */
         private final Integer windDirectionDegrees;
-        /** Wind speed in knots, or {@code null}. */
+        /** Wind speed in knots, or {@code null}; valid range is 0 through 999. */
         private final Integer windSpeedKnots;
-        /** Wind gust in knots, or {@code null}. */
+        /** Wind gust in knots, or {@code null}; valid range is 0 through 999. */
         private final Integer windGustKnots;
-        /** Air temperature in degrees Celsius, or {@code null}. */
+        /** Air temperature in degrees Celsius, or {@code null}; it must fit APRS's Fahrenheit field. */
         private final Double temperatureCelsius;
-        /** Relative humidity percentage, or {@code null}. */
+        /** Relative humidity percentage, or {@code null}; valid range is 1 through 100. */
         private final Integer humidityPercent;
-        /** Barometric pressure in hectopascals, or {@code null}. */
+        /** Barometric pressure in hectopascals, or {@code null}; it must fit APRS's five-digit field. */
         private final Double pressureHectopascals;
     }
 }
