@@ -16,11 +16,13 @@ import lombok.Builder;
 import lombok.Data;
 
 /**
- * Immutable record of one physical APRS packet received or transmitted by the controller.
+ * Immutable record of one physical APRS packet received or submitted by the controller.
  *
  * <p>An event may be associated with multiple packet records: for example, an RF packet and
  * its APRS-IS-gated copy. Build a record with {@code builder()} and derive a changed value
- * with {@code toBuilder()}. The AX.25 byte array is defensively copied on input and output.</p>
+ * with {@code toBuilder()}. A {@link AprsSource#TX_RF} record means a TNC/radio transport
+ * accepted the packet for submission; it does not prove on-air transmission or peer receipt. The
+ * AX.25 byte array is defensively copied on input and output.</p>
  */
 @Data
 @Builder(toBuilder = true)

@@ -66,10 +66,13 @@ public final class AprsController {
     private static final long DIGIPEAT_DEDUP_MS = 28_000L;
 
     /**
-     * Immutable result reported by a radio callback after an actual RF transmission.
+     * Immutable result reported after successful submission to a TNC or radio transport.
      *
-     * <p>The constructor copies both mutable inputs. A non-null instance means the caller may
-     * record a physical TX packet; callbacks return {@code null} when no transmission occurred.</p>
+     * <p>The constructor copies both mutable inputs. A non-null instance means the transport
+     * accepted the frame and the controller may record a TX submission. It does not prove that
+     * the frame was sent over RF or received by another station. For reliable messages, only a
+     * matching APRS ACK establishes delivery; callbacks return {@code null} when submission did
+     * not occur.</p>
      */
     public static final class Transmission {
         private final APRSPacket packet;
@@ -78,11 +81,11 @@ public final class AprsController {
         private final byte[] rawAx25;
 
         /**
-         * Creates a transmission result from snapshots of a parsed packet and its encoded frame.
+         * Creates a transport-submission result from snapshots of a parsed packet and its frame.
          *
-         * @param packet transmitted parser packet; must not be {@code null}
+         * @param packet parser packet accepted by the transport; must not be {@code null}
          * @param frequencyHz RF frequency in Hz, or {@code null}
-         * @param rawAx25 transmitted AX.25 UI frame without FCS, flags, or KISS framing
+         * @param rawAx25 accepted AX.25 UI frame without FCS, flags, or KISS framing
          * @throws NullPointerException if {@code packet} is {@code null}
          */
         public Transmission(APRSPacket packet, Long frequencyHz, byte[] rawAx25) {
@@ -134,11 +137,11 @@ public final class AprsController {
          */
         void onIncomingMessage(AprsEvent event);
         /**
-         * Sends the RF ACK for a received numbered message.
+         * Requests submission of the RF ACK for a received numbered message.
          *
          * <p>This is invoked after the received message and physical packet have been persisted.
          * It can be invoked for a duplicate packet copy when the original event remains eligible
-         * for acknowledgement.</p>
+         * for acknowledgement. Invocation does not confirm that the ACK was sent over RF.</p>
          *
          * @param destination message origin callsign
          * @param messageIdentifier APRS message number being acknowledged
@@ -146,19 +149,19 @@ public final class AprsController {
          */
         void sendAcknowledgement(String destination, String messageIdentifier, long eventId);
         /**
-         * Attempts an RF retransmission for a pending reliable message.
+         * Attempts to submit an RF retransmission for a pending reliable message.
          *
          * @param event immutable pending message event
-         * @return actual transmission snapshot, or {@code null} when nothing was transmitted
+         * @return submission snapshot, or {@code null} when the transport did not accept it
          */
         Transmission retryMessage(AprsEvent event);
         /** Requests that the application build and transmit a position beacon. */
         void requestPositionBeacon();
         /**
-         * Attempts an RF retransmission of a packet selected for digipeating.
+         * Attempts to submit an RF retransmission of a packet selected for digipeating.
          *
          * @param packet detached parser-packet snapshot that may be retained or modified
-         * @return actual transmission snapshot, or {@code null} when nothing was transmitted
+         * @return submission snapshot, or {@code null} when the transport did not accept it
          */
         Transmission transmitDigipeatedPacket(APRSPacket packet);
         /**
@@ -387,16 +390,17 @@ public final class AprsController {
     }
 
     /**
-     * Records a packet that the application has already transmitted on RF.
+     * Records a packet accepted by the application's TNC or radio transport for RF submission.
      *
      * <p>This method does not transmit RF. When {@code eventId} identifies an existing event, the
      * packet is associated with it and its count is updated; otherwise it is stored as unassociated
-     * physical history.</p>
+     * physical history. It does not establish that the packet was sent over RF or received by a
+     * peer.</p>
      *
      * @param eventId event identifier, or {@code null} when no event is associated
-     * @param packet transmitted parser packet
+     * @param packet parser packet accepted by the transport
      * @param frequencyHz RF frequency in Hz, or {@code null}
-     * @param rawAx25 transmitted AX.25 UI frame without FCS, flags, or KISS framing
+     * @param rawAx25 AX.25 UI frame accepted by the transport, without FCS, flags, or KISS framing
      * @throws NullPointerException if {@code packet} is {@code null}
      */
     public synchronized void recordTransmission(Long eventId, APRSPacket packet, Long frequencyHz, byte[] rawAx25) {
@@ -530,19 +534,20 @@ public final class AprsController {
     }
 
     /**
-     * Records a newly transmitted outgoing message and its first RF packet.
+     * Records a newly submitted outgoing message and its first RF packet.
      *
      * <p>This method does not transmit RF. Numbered destinations that require acknowledgement are
      * entered into the reliable-message retry state; bulletin, ALL, QST, and CQ destinations are
-     * recorded without retries.</p>
+     * recorded without retries. Recording a submission does not establish message delivery; a
+     * matching APRS ACK does.</p>
      *
      * @param from local source callsign
      * @param to destination callsign
      * @param text transmitted message body
      * @param messageIdentifier APRS message number, required for reliable destinations
      * @param frequencyHz RF frequency in Hz, or {@code null}
-     * @param packet transmitted parser packet
-     * @param rawAx25 transmitted AX.25 UI frame without FCS, flags, or KISS framing
+     * @param packet parser packet accepted by the transport
+     * @param rawAx25 AX.25 UI frame accepted by the transport, without FCS, flags, or KISS framing
      */
     public synchronized void recordOutgoingMessage(String from, String to, String text, String messageIdentifier,
                                       Long frequencyHz, APRSPacket packet, byte[] rawAx25) {
@@ -580,16 +585,17 @@ public final class AprsController {
     }
 
     /**
-     * Records a newly transmitted outgoing position beacon and its first RF packet.
+     * Records a newly submitted outgoing position beacon and its first RF packet.
      *
-     * <p>This method records a transmission; it does not request or perform one.</p>
+     * <p>This method records a transport submission; it does not request or perform one, and does
+     * not confirm on-air transmission.</p>
      *
      * @param callsign local source callsign
      * @param latitude latitude in decimal degrees
      * @param longitude longitude in decimal degrees
      * @param frequencyHz RF frequency in Hz, or {@code null}
-     * @param packet transmitted parser packet
-     * @param rawAx25 transmitted AX.25 UI frame without FCS, flags, or KISS framing
+     * @param packet parser packet accepted by the transport
+     * @param rawAx25 AX.25 UI frame accepted by the transport, without FCS, flags, or KISS framing
      */
     public synchronized void recordPositionBeacon(String callsign, double latitude, double longitude, Long frequencyHz, APRSPacket packet, byte[] rawAx25) {
         long now = clock.millis();

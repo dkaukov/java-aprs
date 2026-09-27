@@ -44,7 +44,7 @@ public final class AprsEvent {
     public static final int DELIVERY_NONE = 0;
     /** A reliable message awaits acknowledgement or rejection. */
     public static final int DELIVERY_PENDING = 1;
-    /** A reliable message was acknowledged. */
+    /** A reliable message received a matching APRS acknowledgement. */
     public static final int DELIVERY_DELIVERED = 2;
     /** A reliable message was explicitly rejected. */
     public static final int DELIVERY_REJECTED = 3;
@@ -104,7 +104,7 @@ public final class AprsEvent {
 
     /** One of the {@code DELIVERY_*} constants. */
     private final int deliveryState;
-    /** Number of attempted transmissions for a reliable outgoing message. */
+    /** Number of TNC/radio transport submissions attempted for a reliable outgoing message. */
     private final int transmitAttempts;
     /** Scheduled Unix-epoch retry time in milliseconds, or {@code null} when no retry is due. */
     private final Long nextRetryAtMs;
