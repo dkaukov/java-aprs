@@ -69,6 +69,7 @@ public final class AprsController {
     private static final long[] RETRY_DELAYS_MS = {15_000L, 30_000L, 60_000L, 120_000L, 240_000L};
     private static final long FINAL_ACK_GRACE_MS = 30_000L;
     private static final long ACKNOWLEDGEMENT_DELAY_MS = 1_000L;
+    private static final long MESSAGE_IDENTIFIER_SPACE = 60_466_176L; // 36^5
     private static final long EVENT_DUPLICATE_WINDOW_MS = 30_000L;
     private static final long NUMBERED_MESSAGE_DUPLICATE_WINDOW_MS = 30 * 60_000L;
     private static final long DIGIPEAT_DEDUP_MS = 28_000L;
@@ -138,6 +139,49 @@ public final class AprsController {
     }
 
     /**
+     * Reason the controller is requesting an RF submission.
+     *
+     * <p>Transport implementations can use this together with the requested frequency to apply
+     * radio policy without parsing the APRS packet. For example, an application can temporarily
+     * retune for an acknowledgement or position beacon, while declining a reliable retry or
+     * digipeated packet when the radio is on a different frequency.</p>
+     */
+    public enum RfTransmissionPurpose {
+        /** A controller-generated acknowledgement for an incoming numbered message. */
+        ACKNOWLEDGEMENT(false),
+        /** A retransmission of an outgoing reliable APRS message. */
+        RELIABLE_MESSAGE_RETRY(true),
+        /** A controller-generated position or positioned-weather beacon. */
+        POSITION_BEACON(false),
+        /** An initial outgoing reliable APRS message addressed to one station. */
+        OUTGOING_MESSAGE(true),
+        /** An initial outgoing bulletin, CQ, QST, or ALL broadcast message. */
+        BROADCAST(false),
+        /** A fill-in digipeater retransmission of an eligible received RF packet. */
+        DIGIPEATED_PACKET(false);
+
+        private final boolean expectsAcknowledgement;
+
+        RfTransmissionPurpose(boolean expectsAcknowledgement) {
+            this.expectsAcknowledgement = expectsAcknowledgement;
+        }
+
+        /**
+         * Whether this submission is a reliable APRS message for which a matching ACK or REJ is
+         * expected from the remote station.
+         *
+         * <p>This describes APRS protocol semantics, not local transport acceptance or on-air
+         * delivery. The controller records only accepted submissions and uses a matching APRS
+         * acknowledgement to resolve reliable message state.</p>
+         *
+         * @return {@code true} for an initial reliable message or its retry
+         */
+        public boolean expectsAcknowledgement() {
+            return expectsAcknowledgement;
+        }
+    }
+
+    /**
      * Synchronous application and radio boundary used by {@link AprsController}.
      *
      * <p>Methods execute while the controller is serialized. Implementations should return
@@ -166,10 +210,11 @@ public final class AprsController {
          *
          * @param packet controller-selected packet snapshot
          * @param frequencyHz requested RF frequency in Hz, or {@code null} when unspecified
+         * @param purpose controller-defined reason for this submission
          * @return accepted, retry-later, or terminal-cancellation outcome; {@code null} is
          *         treated as a retry-later outcome
          */
-        RfTransmission submitRf(APRSPacket packet, Long frequencyHz);
+        RfTransmission submitRf(APRSPacket packet, Long frequencyHz, RfTransmissionPurpose purpose);
         /** Returns current application-owned location/content, or {@code null} to skip a beacon. */
         BeaconData getBeaconData();
         /**
@@ -200,6 +245,7 @@ public final class AprsController {
     private volatile boolean digipeatingEnabled;
     private volatile boolean igateEnabled;
     private boolean pendingReliableEventsLoaded;
+    private long nextMessageIdentifier;
 
     /**
      * Enables or disables the controller's fill-in digipeating policy.
@@ -280,6 +326,7 @@ public final class AprsController {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.callbacks = Objects.requireNonNull(callbacks, "callbacks");
         this.clock = Objects.requireNonNull(clock, "clock");
+        nextMessageIdentifier = clock.millis();
     }
 
     /**
@@ -465,7 +512,8 @@ public final class AprsController {
     }
 
     private void submitAcknowledgement(PendingAcknowledgement acknowledgement) {
-        RfTransmission submission = callbacks.submitRf(acknowledgement.packet.copy(), acknowledgement.frequencyHz);
+        RfTransmission submission = callbacks.submitRf(acknowledgement.packet.copy(), acknowledgement.frequencyHz,
+            RfTransmissionPurpose.ACKNOWLEDGEMENT);
         if (submission != null && submission.getTransmission() != null) {
             recordTransmissionNow(acknowledgement.eventId, submission.getTransmission(), false, false);
         }
@@ -621,8 +669,8 @@ public final class AprsController {
                 event = event.toBuilder().deliveryState(AprsEvent.DELIVERY_FAILED)
                     .nextRetryAtMs(null).build();
             } else {
-                RfTransmission submission = callbacks.submitRf(original.packet.copy(),
-                    original.frequencyHz);
+                RfTransmission submission = callbacks.submitRf(original.packet.copy(), original.frequencyHz,
+                    RfTransmissionPurpose.RELIABLE_MESSAGE_RETRY);
                 Transmission transmission = submission == null ? null : submission.getTransmission();
                 if (transmission == null) {
                     event = submission != null && !submission.isRetryAllowed()
@@ -704,6 +752,51 @@ public final class AprsController {
             event.nextRetryAtMs(now + RETRY_DELAYS_MS[0]);
         }
         persistOutgoingEvent(event.build(), packet, frequencyHz, rawAx25);
+    }
+
+    /**
+     * Builds, submits, and records an outgoing APRS message.
+     *
+     * <p>Direct destinations receive a controller-generated APRS message identifier, are
+     * submitted with {@link RfTransmissionPurpose#OUTGOING_MESSAGE}, and enter reliable retry
+     * state after acceptance. Bulletin, CQ, QST, and ALL destinations omit the identifier, are
+     * submitted with {@link RfTransmissionPurpose#BROADCAST}, and are recorded without retries.
+     * A {@code false} result means the controller configuration or arguments were insufficient,
+     * or the local transport did not accept the frame.</p>
+     *
+     * @param to message destination callsign or broadcast address
+     * @param text message body; it is trimmed and limited to APRS message-field capacity
+     * @param frequencyHz requested RF frequency in Hz, or {@code null} when unspecified
+     * @return {@code true} only when the transport accepted and the controller recorded the
+     *         initial submission
+     */
+    public synchronized boolean postMessage(String to, String text, Long frequencyHz) {
+        String destination = normalizeCallsign(to);
+        if (callsign.isEmpty() || txDestination.isEmpty() || destination.isEmpty() || text == null) {
+            return false;
+        }
+        boolean reliable = requiresAcknowledgement(destination);
+        String identifier = reliable ? nextMessageIdentifier(destination) : null;
+        APRSPacket packet = new APRSPacket(callsign, txDestination, txPath, MessagePacket.createMessagePayload(destination, text.trim(), identifier));
+        MessagePacket encodedMessage = new MessagePacket(packet.getPayload().getRawBytes(), txDestination);
+        RfTransmission submission = callbacks.submitRf(packet.copy(), frequencyHz, reliable ? RfTransmissionPurpose.OUTGOING_MESSAGE : RfTransmissionPurpose.BROADCAST);
+        if (submission == null || submission.getTransmission() == null) {
+            return false;
+        }
+        Transmission transmission = submission.getTransmission();
+        recordOutgoingMessage(callsign, destination, encodedMessage.getMessageBody(), identifier, transmission.frequencyHz, transmission.packet, transmission.rawAx25);
+        return true;
+    }
+
+    private String nextMessageIdentifier(String destination) {
+        for (long count = 0; count < MESSAGE_IDENTIFIER_SPACE; count++) {
+            String identifier = Long.toString(Math.floorMod(nextMessageIdentifier++,
+                MESSAGE_IDENTIFIER_SPACE), 36).toUpperCase(Locale.ROOT);
+            if (repository.findPendingOutgoingEvent(callsign, destination, identifier) == null) {
+                return identifier;
+            }
+        }
+        throw new IllegalStateException("No APRS message identifiers are available for " + destination);
     }
 
     /**
@@ -793,7 +886,8 @@ public final class AprsController {
             return false;
         }
         APRSPacket packet = new APRSPacket(callsign, txDestination, txPath, encodeBeacon(beacon).getBytes(StandardCharsets.US_ASCII));
-        RfTransmission submission = callbacks.submitRf(packet.copy(), null);
+        RfTransmission submission = callbacks.submitRf(packet.copy(), null,
+            RfTransmissionPurpose.POSITION_BEACON);
         if (submission == null || submission.getTransmission() == null) {
             return false;
         }
@@ -1140,7 +1234,8 @@ public final class AprsController {
         }
         APRSPacket retransmit = new APRSPacket(packet.getSourceCall(), packet.getDestinationCall(), replacement, packet.getPayload().getRawBytes());
         retransmit.setComment(packet.getComment());
-        RfTransmission submission = callbacks.submitRf(retransmit.copy(), frequencyHz);
+        RfTransmission submission = callbacks.submitRf(retransmit.copy(), frequencyHz,
+            RfTransmissionPurpose.DIGIPEATED_PACKET);
         Transmission transmission = submission == null ? null : submission.getTransmission();
         if (transmission != null) {
             digipeatInputCache.put(key, now);
