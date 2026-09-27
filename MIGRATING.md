@@ -207,7 +207,7 @@ the library never supplies a vendor tocall default.
 Implement `submitRf(APRSPacket, Long)` instead. It receives the concrete ACK, retry, or
 digipeated packet selected by the controller plus an optional requested frequency in Hz. Retries
 use the initial persisted TX frequency; the transport may tune to it, decline it, or ignore it.
-Return an `RfTransmission` containing a `Transmission` only when the local TNC/radio accepted
+Return an `AprsController.RfTransmission` containing a `Transmission` only when the local TNC/radio accepted
 the packet. Without a transmission, `retryAllowed=false` cancels a reliable-message retry;
 otherwise it remains scheduled. A successful result is not RF delivery; matching APRS ACK
 packets still establish reliable-message delivery.

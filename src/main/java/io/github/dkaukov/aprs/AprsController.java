@@ -68,6 +68,7 @@ public final class AprsController {
     private static final Logger LOG = Logger.getLogger(AprsController.class.getName());
     private static final long[] RETRY_DELAYS_MS = {15_000L, 30_000L, 60_000L, 120_000L, 240_000L};
     private static final long FINAL_ACK_GRACE_MS = 30_000L;
+    private static final long ACKNOWLEDGEMENT_DELAY_MS = 1_000L;
     private static final long EVENT_DUPLICATE_WINDOW_MS = 30_000L;
     private static final long NUMBERED_MESSAGE_DUPLICATE_WINDOW_MS = 30 * 60_000L;
     private static final long DIGIPEAT_DEDUP_MS = 28_000L;
@@ -191,6 +192,7 @@ public final class AprsController {
     private final Map<String, Long> digipeatInputCache = new ConcurrentHashMap<>();
     private final Map<String, Long> digipeatOutputCache = new ConcurrentHashMap<>();
     private final Map<Long, AprsEvent> pendingReliableEvents = new HashMap<>();
+    private final List<PendingAcknowledgement> pendingAcknowledgements = new ArrayList<>();
     @Getter
     private volatile boolean positionBeaconingEnabled;
     private volatile long nextPositionBeaconAt;
@@ -294,7 +296,8 @@ public final class AprsController {
      * Processes one decoded packet with physical transport metadata.
      *
      * <p>The controller records physical history, creates or aggregates a logical event, and may
-     * synchronously invoke callbacks for ACKs, digipeating, or iGate forwarding. Use an
+     * synchronously invoke callbacks for digipeating or iGate forwarding, and may queue an ACK
+     * for a later {@link #tick(long)}. Use an
      * {@link AprsSource} value for {@code source}; RF frequency is in Hz.</p>
      *
      * @param packet parsed APRS packet; copied before processing
@@ -446,20 +449,25 @@ public final class AprsController {
         }
         if (AprsSource.RX_RF.equals(source) && event.getMessageIdentifier() != null
             && !event.getMessageIdentifier().trim().isEmpty()) {
-            submitAcknowledgement(event, frequencyHz);
+            scheduleAcknowledgement(event, frequencyHz);
         }
     }
 
-    private void submitAcknowledgement(AprsEvent event, Long frequencyHz) {
+    private void scheduleAcknowledgement(AprsEvent event, Long frequencyHz) {
         if (txDestination.isEmpty()) {
             LOG.fine("Skipping APRS acknowledgement because no TX destination is configured");
             return;
         }
         APRSPacket acknowledgement = new APRSPacket(callsign, txDestination, txPath,
             MessagePacket.createMessagePayload(event.getFromCallsign(), "ack" + event.getMessageIdentifier(), null));
-        RfTransmission submission = callbacks.submitRf(acknowledgement.copy(), frequencyHz);
+        pendingAcknowledgements.add(new PendingAcknowledgement(clock.millis() + ACKNOWLEDGEMENT_DELAY_MS,
+            event.getId(), acknowledgement, frequencyHz));
+    }
+
+    private void submitAcknowledgement(PendingAcknowledgement acknowledgement) {
+        RfTransmission submission = callbacks.submitRf(acknowledgement.packet.copy(), acknowledgement.frequencyHz);
         if (submission != null && submission.getTransmission() != null) {
-            recordTransmissionNow(event.getId(), submission.getTransmission(), false, false);
+            recordTransmissionNow(acknowledgement.eventId, submission.getTransmission(), false, false);
         }
     }
 
@@ -550,16 +558,18 @@ public final class AprsController {
     }
 
     /**
-     * Runs due reliable-message retries and optional position-beacon scheduling.
+     * Runs due acknowledgements, reliable-message retries, and optional position-beacon scheduling.
      *
      * <p>The first invocation loads pending reliable events from the repository. Subsequent calls
-     * use controller-maintained retry state. This class creates no scheduler thread; applications
-     * must invoke this method periodically.</p>
+     * use controller-maintained retry state. Incoming numbered RF messages addressed to this
+     * controller's callsign are acknowledged one second after receipt on a later tick. This class
+     * creates no scheduler thread; applications must invoke this method periodically.</p>
      *
      * @param now current wall-clock time in milliseconds since the Unix epoch
      */
     public synchronized void tick(long now) {
         loadPendingReliableEvents();
+        submitDueAcknowledgements(now);
         for (AprsEvent event : new ArrayList<>(pendingReliableEvents.values())) {
             if (event.getNextRetryAtMs() != null && event.getNextRetryAtMs() <= now) {
                 retryOrFail(event, now);
@@ -568,6 +578,18 @@ public final class AprsController {
         if (positionBeaconingEnabled && now >= nextPositionBeaconAt) {
             nextPositionBeaconAt = now + positionBeaconIntervalMs;
             submitPositionBeacon(callbacks.getBeaconData());
+        }
+    }
+
+    private void submitDueAcknowledgements(long now) {
+        for (int index = 0; index < pendingAcknowledgements.size();) {
+            PendingAcknowledgement acknowledgement = pendingAcknowledgements.get(index);
+            if (acknowledgement.dueAtMs <= now) {
+                pendingAcknowledgements.remove(index);
+                submitAcknowledgement(acknowledgement);
+            } else {
+                index++;
+            }
         }
     }
 
@@ -784,11 +806,16 @@ public final class AprsController {
     private String encodeBeacon(BeaconData beacon) {
         char table = beacon.getSymbolTable() == null ? '/' : beacon.getSymbolTable();
         char code = beacon.getWeather() == null ? beacon.getSymbolCode() == null ? '>' : beacon.getSymbolCode() : '_';
-        Position coordinateFormatter = new Position(0D, 0D);
-        StringBuilder value = new StringBuilder("!")
-            .append(coordinateFormatter.getDMS(beacon.getLatitude(), true))
-            .append(table).append(coordinateFormatter.getDMS(beacon.getLongitude(), false))
-            .append(code);
+        StringBuilder value = new StringBuilder(beacon.isMessagingCapable() ? "=" : "!");
+        if (beacon.isCompressed()) {
+            value.append(new Position(beacon.getLatitude(), beacon.getLongitude(), 0, table, code)
+                .toCompressedString());
+        } else {
+            Position coordinateFormatter = new Position(0D, 0D);
+            value.append(coordinateFormatter.getDMS(beacon.getLatitude(), true))
+                .append(table).append(coordinateFormatter.getDMS(beacon.getLongitude(), false))
+                .append(code);
+        }
         if (beacon.getCourseDegrees() != null && beacon.getSpeedKnots() != null) {
             value.append(String.format(Locale.ROOT, "%03d/%03d", beacon.getCourseDegrees(),
                 Math.round(beacon.getSpeedKnots())));
@@ -836,6 +863,10 @@ public final class AprsController {
         }
         if (hasOnlyOne(beacon.getCourseDegrees(), beacon.getSpeedKnots())) {
             return rejectBeacon("course and speed must be supplied together");
+        }
+        if (beacon.isCompressed() && (beacon.getCourseDegrees() != null
+            || beacon.getSpeedKnots() != null || beacon.getAltitudeMeters() != null)) {
+            return rejectBeacon("compressed beacons cannot include uncompressed position extensions");
         }
         if (beacon.getWeather() != null
             && (beacon.getCourseDegrees() != null || beacon.getSpeedKnots() != null)) {
@@ -1291,6 +1322,21 @@ public final class AprsController {
 
         private static PersistedEvent existing(AprsEvent event) {
             return new PersistedEvent(event, false);
+        }
+    }
+
+    private static final class PendingAcknowledgement {
+        private final long dueAtMs;
+        private final long eventId;
+        private final APRSPacket packet;
+        private final Long frequencyHz;
+
+        private PendingAcknowledgement(long dueAtMs, long eventId, APRSPacket packet,
+                                       Long frequencyHz) {
+            this.dueAtMs = dueAtMs;
+            this.eventId = eventId;
+            this.packet = packet.copy();
+            this.frequencyHz = frequencyHz;
         }
     }
 

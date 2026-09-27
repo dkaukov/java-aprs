@@ -80,6 +80,7 @@ public class AprsControllerTest {
         APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
 
         f.controller.handle(packet, AprsSource.RX_RF, 144_390_000L, packet.toAX25Frame());
+        f.controller.tick(Long.MAX_VALUE);
 
         assertEquals(2, f.repository.transactionCount);
         assertEquals(1, f.events.records.size());
@@ -125,9 +126,24 @@ public class AprsControllerTest {
         APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
 
         f.controller.handle(packet, AprsSource.RX_RF, null, packet.toAX25Frame());
+        f.controller.tick(Long.MAX_VALUE);
 
         assertTrue(f.callbacks.lastIncomingMessageForLocal);
         assertEquals(1, f.callbacks.acknowledgementCount);
+    }
+
+    @Test public void incomingNumberedMessageAcknowledgementIsDelayedOneSecond() {
+        Fixture f = fixture(Clock.fixed(Instant.ofEpochMilli(10_000L), ZoneOffset.UTC));
+        APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
+
+        f.controller.handle(packet, AprsSource.RX_RF, 144_390_000L, packet.toAX25Frame());
+        f.controller.tick(10_999L);
+        assertEquals(0, f.callbacks.acknowledgementCount);
+        assertEquals(1, f.packets.records.size());
+
+        f.controller.tick(11_000L);
+        assertEquals(1, f.callbacks.acknowledgementCount);
+        assertEquals(2, f.packets.records.size());
     }
 
     @Test public void controllerConstructsAcknowledgementFromConfiguredEnvelope() {
@@ -137,6 +153,7 @@ public class AprsControllerTest {
         APRSPacket incoming = directMessage("VK3ABC", "VK3ME", "hello", "A7");
 
         f.controller.handle(incoming, AprsSource.RX_RF, 144_390_000L, incoming.toAX25Frame());
+        f.controller.tick(Long.MAX_VALUE);
 
         APRSPacket acknowledgement = f.callbacks.lastTransmission.getPacket();
         MessagePacket message = new MessagePacket(acknowledgement.getPayload().getRawBytes(),
@@ -241,6 +258,7 @@ public class AprsControllerTest {
         Fixture f = fixture();
         APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
         runConcurrently(16, () -> f.controller.handle(packet, AprsSource.RX_RF, null, null));
+        f.controller.tick(Long.MAX_VALUE);
         assertEquals(1, f.events.records.size());
         assertEquals(16, f.events.records.get(0).getPacketCount());
         assertEquals(32, f.packets.records.size());
@@ -311,6 +329,7 @@ public class AprsControllerTest {
         byte[] raw = frame.toAX25Frame();
 
         f.controller.handle(frame, AprsSource.RX_RF, 145_175_000L, raw);
+        f.controller.tick(Long.MAX_VALUE);
 
         assertEquals(1, f.events.records.size());
         assertEquals(2, f.packets.records.size());
@@ -334,6 +353,7 @@ public class AprsControllerTest {
 
         f.controller.handle(frame, AprsSource.RX_RF, 144_390_000L, frame.toAX25Frame());
         f.controller.handle(frame, AprsSource.RX_RF, 144_390_000L, frame.toAX25Frame());
+        f.controller.tick(Long.MAX_VALUE);
 
         assertEquals(4, f.packets.records.size());
         assertEquals(1, f.events.records.size());
@@ -805,6 +825,21 @@ public class AprsControllerTest {
         assertTrue(payload.startsWith("!3800.00N/14458.20E>"));
     }
 
+    @Test public void messagingCapableCompressedBeaconUsesConfiguredPositionFormat() throws Exception {
+        Fixture f = fixture();
+        BeaconData beacon = BeaconData.builder().latitude(-37.8608D).longitude(144.9700D)
+            .messagingCapable(true).compressed(true).build();
+
+        assertTrue(f.controller.submitPositionBeacon(beacon));
+
+        APRSPacket packet = Parser.parseAX25(f.callbacks.lastTransmission.getRawAx25());
+        PositionField position = (PositionField) packet.getPayload().getAprsData(APRSTypes.T_POSITION);
+        assertEquals('=', packet.getDti());
+        assertEquals("Compressed", position.getPositionSource());
+        assertEquals(-37.8608D, position.getPosition().getLatitude(), 0.00001D);
+        assertEquals(144.9700D, position.getPosition().getLongitude(), 0.00001D);
+    }
+
     @Test public void submitPositionBeaconReportsTransportAcceptance() {
         Fixture f = fixture();
         BeaconData beacon = BeaconData.builder().latitude(-37D).longitude(144D).build();
@@ -825,6 +860,8 @@ public class AprsControllerTest {
             .courseDegrees(361).speedKnots(1D).build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
             .courseDegrees(1).build());
+        assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
+            .compressed(true).courseDegrees(1).speedKnots(1D).build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
             .courseDegrees(1).speedKnots(999.6D).build());
         assertInvalidBeaconIsSkipped(BeaconData.builder().latitude(-37D).longitude(144D)
@@ -894,6 +931,7 @@ public class AprsControllerTest {
 
         f.controller.handle(frame, AprsSource.RX_RF, 144_390_000L, frame.toAX25Frame());
         f.controller.handle(frame, AprsSource.RX_RF, 144_390_000L, frame.toAX25Frame());
+        f.controller.tick(Long.MAX_VALUE);
 
         assertEquals(1, f.callbacks.digipeatCount);
         assertEquals(5, f.packets.records.size());
@@ -996,6 +1034,7 @@ public class AprsControllerTest {
         };
 
         f.controller.handle(frame, AprsSource.RX_RF, 145_175_000L, raw);
+        f.controller.tick(Long.MAX_VALUE);
         frame.addDigipeater(new Digipeater("OTHER"));
         raw[1] ^= 1;
 
