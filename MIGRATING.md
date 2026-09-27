@@ -204,9 +204,14 @@ controller-generated RF packets with `setCallsign(...)`, `setTxDestination(...)`
 `setTxPath(...)`. A blank callsign or missing destination disables automatic ACK generation;
 the library never supplies a vendor tocall default.
 
-Implement `submitRf(APRSPacket, Long)` instead. It receives the concrete ACK, retry, or
-digipeated packet selected by the controller plus an optional requested frequency in Hz. Retries
-use the initial persisted TX frequency; the transport may tune to it, decline it, or ignore it.
+Implement `submitRf(APRSPacket, Long, RfTransmissionPurpose)` instead. It receives the concrete
+ACK, retry, beacon, or digipeated packet selected by the controller, an optional requested
+frequency in Hz, and its explicit purpose. Retries use the initial persisted TX frequency. Use
+the purpose to apply radio policy without parsing packet content, for example by temporarily
+retuning for an ACK or beacon while declining a retry or digipeated packet on a different frequency.
+Use `postMessage(to, text, frequencyHz)` for controller-owned initial messages. Direct messages
+are submitted as `OUTGOING_MESSAGE` and receive a generated APRS message identifier; CQ, BLN*,
+QST, and ALL messages are submitted as `BROADCAST` without retries.
 Return an `AprsController.RfTransmission` containing a `Transmission` only when the local TNC/radio accepted
 the packet. Without a transmission, `retryAllowed=false` cancels a reliable-message retry;
 otherwise it remains scheduled. A successful result is not RF delivery; matching APRS ACK

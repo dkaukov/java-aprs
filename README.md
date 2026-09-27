@@ -110,13 +110,29 @@ controller.setTxPath(Collections.singletonList(new Digipeater("WIDE1-1")));
 ```
 
 The controller constructs ACKs, retries, digipeated frames, and RF-to-APRS-IS qAO lines.
-`Callbacks.submitRf(packet, frequencyHz)` receives the concrete packet selected for submission
-and an optional RF frequency request. Retries use the initial persisted TX frequency; transport
-implementations may tune to it, decline the request, or ignore it. Return a `Transmission` only
-when the TNC/radio accepted the frame. Return an `AprsController.RfTransmission` without a transmission and
+`Callbacks.submitRf(packet, frequencyHz, purpose)` receives the concrete packet selected for
+submission, an optional RF frequency request, and an explicit controller-defined purpose.
+Retries use the initial persisted TX frequency. Transport implementations can use the purpose to
+allow temporary retuning for ACKs and beacons while declining retries or digipeated packets when
+the requested frequency is unavailable. Return a `Transmission` only when the TNC/radio accepted
+the frame. Return an `AprsController.RfTransmission` without a transmission and
 with `retryAllowed=false` to cancel a reliable-message retry; otherwise a refused retry remains
 scheduled. This records submission, not on-air transmission or peer receipt. For reliable
 messages, only a matching APRS ACK establishes delivery.
+
+Use `postMessage(...)` for controller-owned initial RF messages. It generates the APRS message
+identifier for a direct destination, sends with `OUTGOING_MESSAGE`, and starts retry tracking only
+after transport acceptance. `CQ`, `BLN*`, `QST`, and `ALL` are sent as `BROADCAST` without a
+message identifier or retries:
+
+```java
+controller.postMessage("VK3ABC", "Hello", 144_390_000L);
+controller.postMessage("CQ", "Listening on 144.390", 144_390_000L);
+```
+
+`recordOutgoingMessage(...)` remains available when an application has already submitted a custom
+message frame itself.
+
 `submitAprsIs(line, onSuccess)` must invoke `onSuccess` only after successful socket submission
 so the controller can record TX_APRS_IS history.
 
@@ -230,11 +246,13 @@ abstract class AndroidCallbacks implements AprsController.Callbacks {
         mainHandler.post(() -> viewModel.onIncomingMessage(event, forLocal));
     }
 
-    @Override public AprsController.RfTransmission submitRf(APRSPacket packet, Long frequencyHz) {
-        return submitToTnc(packet, frequencyHz);
+    @Override public AprsController.RfTransmission submitRf(APRSPacket packet, Long frequencyHz,
+                                                             AprsController.RfTransmissionPurpose purpose) {
+        return submitToTnc(packet, frequencyHz, purpose);
     }
 
-    private AprsController.RfTransmission submitToTnc(APRSPacket packet, Long requestedFrequencyHz) {
+    private AprsController.RfTransmission submitToTnc(APRSPacket packet, Long requestedFrequencyHz,
+                                                       AprsController.RfTransmissionPurpose purpose) {
         byte[] frame = packet.toAX25Frame();
         long frequencyHz = requestedFrequencyHz == null ? 144_390_000L : requestedFrequencyHz;
         return tnc.writeAx25(frame, frequencyHz)

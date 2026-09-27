@@ -170,6 +170,8 @@ public class AprsControllerTest {
             f.packets.records.get(1).getEventId());
         assertEquals(1, f.events.records.get(0).getPacketCount());
         assertEquals(Long.valueOf(144_390_000L), f.callbacks.lastRequestedFrequencyHz);
+        assertEquals(AprsController.RfTransmissionPurpose.ACKNOWLEDGEMENT,
+            f.callbacks.lastTransmissionPurpose);
     }
 
     @Test public void missingIdentityOrDestinationSkipsAutomaticAcknowledgementAndIgate() {
@@ -230,6 +232,8 @@ public class AprsControllerTest {
 
         assertEquals(1, restartedCallbacks.retryCount);
         assertEquals(Long.valueOf(144_390_000L), restartedCallbacks.lastRequestedFrequencyHz);
+        assertEquals(AprsController.RfTransmissionPurpose.RELIABLE_MESSAGE_RETRY,
+            restartedCallbacks.lastTransmissionPurpose);
         assertArrayEquals(original.toAX25Frame(),
             restartedCallbacks.lastTransmission.getRawAx25());
     }
@@ -574,6 +578,45 @@ public class AprsControllerTest {
         assertEquals(AprsSource.TX_RF, packet.getSource());
     }
 
+    @Test public void postMessageBuildsAndRecordsReliableMessage() {
+        Fixture f = fixture();
+
+        assertTrue(f.controller.postMessage("VK3ABC", "hello", 144_390_000L));
+
+        AprsEvent event = f.events.records.get(0);
+        MessagePacket message = new MessagePacket(f.callbacks.lastTransmission.getPacket()
+            .getPayload().getRawBytes(), "APRS");
+        assertEquals(AprsEvent.DELIVERY_PENDING, event.getDeliveryState());
+        assertEquals("VK3ABC", event.getToCallsign());
+        assertEquals("hello", event.getBody());
+        assertEquals(event.getMessageIdentifier(), message.getMessageNumber());
+        assertEquals(AprsController.RfTransmissionPurpose.OUTGOING_MESSAGE,
+            f.callbacks.lastTransmissionPurpose);
+        assertEquals(Long.valueOf(144_390_000L), f.callbacks.lastRequestedFrequencyHz);
+    }
+
+    @Test public void postMessageClassifiesBulletinAsBroadcast() {
+        Fixture f = fixture();
+
+        assertTrue(f.controller.postMessage("BLN1CQ", "net starts", 144_390_000L));
+
+        AprsEvent event = f.events.records.get(0);
+        assertEquals(AprsEvent.DELIVERY_NONE, event.getDeliveryState());
+        assertNull(event.getMessageIdentifier());
+        assertEquals(AprsController.RfTransmissionPurpose.BROADCAST,
+            f.callbacks.lastTransmissionPurpose);
+    }
+
+    @Test public void rejectedPostMessageDoesNotCreateHistory() {
+        Fixture f = fixture();
+        f.callbacks.retrySucceeds = false;
+
+        assertFalse(f.controller.postMessage("VK3ABC", "hello", 144_390_000L));
+
+        assertTrue(f.events.records.isEmpty());
+        assertTrue(f.packets.records.isEmpty());
+    }
+
     @Test public void digipeatedEchoAttachesToOutgoingChatEvent() {
         Fixture f = fixture();
         APRSPacket transmitted = outgoingMessage("VK3ME", "VK3ABC", "hello", "7");
@@ -847,6 +890,8 @@ public class AprsControllerTest {
         assertTrue(f.controller.submitPositionBeacon(beacon));
         assertEquals(1, f.packets.records.size());
         assertNull(f.callbacks.lastRequestedFrequencyHz);
+        assertEquals(AprsController.RfTransmissionPurpose.POSITION_BEACON,
+            f.callbacks.lastTransmissionPurpose);
         f.callbacks.retrySucceeds = false;
         assertFalse(f.controller.submitPositionBeacon(beacon));
         assertEquals(1, f.packets.records.size());
@@ -951,6 +996,8 @@ public class AprsControllerTest {
         assertEquals(1, f.callbacks.digipeatCount);
         assertEquals("VK3ME-9*", f.callbacks.lastDigipeatedPacket.getDigipeaters().get(0).toString());
         assertEquals(Long.valueOf(144_390_000L), f.callbacks.lastRequestedFrequencyHz);
+        assertEquals(AprsController.RfTransmissionPurpose.DIGIPEATED_PACKET,
+            f.callbacks.lastTransmissionPurpose);
     }
 
     @Test public void fillInDigipeaterRejectsWideOneTwo() {
@@ -1421,6 +1468,7 @@ public class AprsControllerTest {
         boolean acknowledgementDuringTransaction;
         AprsController.Transmission lastTransmission;
         Long lastRequestedFrequencyHz;
+        AprsController.RfTransmissionPurpose lastTransmissionPurpose;
 
         @Override public void onIncomingMessage(AprsEvent event, boolean forLocal) {
             incomingMessageDuringTransaction = repository.transactionDepth > 0;
@@ -1429,9 +1477,11 @@ public class AprsControllerTest {
             lastIncomingMessageForLocal = forLocal;
         }
 
-        @Override public AprsController.RfTransmission submitRf(APRSPacket packet, Long frequencyHz) {
+        @Override public AprsController.RfTransmission submitRf(APRSPacket packet, Long frequencyHz,
+                                                                 AprsController.RfTransmissionPurpose purpose) {
             String payload = new String(packet.getPayload().getRawBytes(), StandardCharsets.ISO_8859_1);
             lastRequestedFrequencyHz = frequencyHz;
+            lastTransmissionPurpose = purpose;
             acknowledgementDuringTransaction = repository != null && repository.transactionDepth > 0;
             if (payload.contains(":ack")) {
                 acknowledgementCount++;
