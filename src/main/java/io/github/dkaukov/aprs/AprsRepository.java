@@ -38,10 +38,22 @@ public interface AprsRepository {
      * uses this boundary for related event and packet persistence, but never for application or
      * radio callbacks.</p>
      *
+     * <p>The default implementation cannot undo work that completed before an exception. For
+     * example, if inserting a packet succeeds but updating its associated event fails, the
+     * packet remains stored while the event retains its former packet count and state. An
+     * implementation that provides atomic transactions must roll back both changes when the
+     * operation fails.</p>
+     *
+     * <p>Controller operations are not automatically idempotent after a repository failure.
+     * Callers must not blindly retry {@link AprsController} methods: a retry can insert another
+     * physical packet or allocate another event. Reconcile the stored records first, or use an
+     * atomic implementation of this method.</p>
+     *
      * @param operation repository operation to execute
      * @param <T> result type
      * @return result returned by {@code operation}
      * @throws NullPointerException if {@code operation} is {@code null}
+     * @throws RuntimeException if the operation or transaction implementation fails
      */
     default <T> T inTransaction(Supplier<T> operation) {
         return Objects.requireNonNull(operation, "operation").get();
