@@ -32,6 +32,7 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -121,13 +122,7 @@ public final class AprsController {
      */
     public interface Callbacks {
         /**
-         * Returns the current local station callsign.
-         *
-         * @return local callsign, or {@code null} when no station identity is active
-         */
-        String getCallsign();
-        /**
-         * Handles a newly created message addressed to {@link #getCallsign()}.
+         * Handles a newly created message addressed to the configured local callsign.
          *
          * <p>This is invoked after the event and its associated physical packet have been
          * persisted. It is not invoked for duplicate packet copies collapsed into an existing
@@ -137,46 +132,34 @@ public final class AprsController {
          */
         void onIncomingMessage(AprsEvent event);
         /**
-         * Requests submission of the RF ACK for a received numbered message.
+         * Submits the exact APRS packet selected by the controller to local RF transport.
          *
-         * <p>This is invoked after the received message and physical packet have been persisted.
-         * It can be invoked for a duplicate packet copy when the original event remains eligible
-         * for acknowledgement. Invocation does not confirm that the ACK was sent over RF.</p>
+         * <p>A non-null result means only that the local TNC/radio transport accepted the frame;
+         * it does not confirm on-air transmission or peer receipt.</p>
          *
-         * @param destination message origin callsign
-         * @param messageIdentifier APRS message number being acknowledged
-         * @param eventId persistent identifier of the received message event
-         */
-        void sendAcknowledgement(String destination, String messageIdentifier, long eventId);
-        /**
-         * Attempts to submit an RF retransmission for a pending reliable message.
-         *
-         * @param event immutable pending message event
+         * @param packet controller-selected packet snapshot
          * @return submission snapshot, or {@code null} when the transport did not accept it
          */
-        Transmission retryMessage(AprsEvent event);
-        /** Requests that the application build and transmit a position beacon. */
-        void requestPositionBeacon();
+        Transmission submitRf(APRSPacket packet);
+        /** Returns current application-owned location/content, or {@code null} to skip a beacon. */
+        BeaconData getBeaconData();
         /**
-         * Attempts to submit an RF retransmission of a packet selected for digipeating.
+         * Submits an APRS-IS line and invokes {@code onSuccess} after socket submission succeeds.
+         * The callback must run later, after this method returns, rather than synchronously.
          *
-         * @param packet detached parser-packet snapshot that may be retained or modified
-         * @return submission snapshot, or {@code null} when the transport did not accept it
+         * @param tnc2 controller-selected TNC2 line without a terminator
+         * @param onSuccess action to run after successful socket submission
+         * @return {@code true} when the line was accepted for asynchronous submission
          */
-        Transmission transmitDigipeatedPacket(APRSPacket packet);
-        /**
-         * Forwards an RF packet accepted by the controller's iGate policy to APRS-IS.
-         *
-         * @param tnc2 packet line without a terminator
-         * @param eventId associated event ID, or {@code null} when no logical event was created
-         * @return application-defined delivery indication; the controller currently ignores it
-         */
-        boolean gateToAprsIs(String tnc2, Long eventId);
+        boolean submitAprsIs(String tnc2, Runnable onSuccess);
     }
 
     private final AprsRepository repository;
     private final Callbacks callbacks;
     private final Clock clock;
+    private String callsign = "";
+    private String txDestination = "";
+    private List<Digipeater> txPath = Collections.emptyList();
     private final Map<String, Long> digipeatInputCache = new ConcurrentHashMap<>();
     private final Map<String, Long> digipeatOutputCache = new ConcurrentHashMap<>();
     private final Map<Long, AprsEvent> pendingReliableEvents = new HashMap<>();
@@ -200,11 +183,44 @@ public final class AprsController {
     /**
      * Enables or disables standards-filtered, one-way forwarding from RF to APRS-IS.
      *
-     * @param enabled {@code true} to invoke {@link Callbacks#gateToAprsIs(String, Long)} for
+     * @param enabled {@code true} to invoke {@link Callbacks#submitAprsIs(String, Runnable)} for
      *                eligible RF packets
      */
     public synchronized void setIgateEnabled(boolean enabled) {
         igateEnabled = enabled;
+    }
+
+    /** Configures the local APRS callsign used for addressed messages, digipeating, and qAO. */
+    public synchronized void setCallsign(String value) {
+        String normalized = normalizeCallsign(value);
+        if (!callsign.equals(normalized)) {
+            callsign = normalized;
+            digipeatInputCache.clear();
+            digipeatOutputCache.clear();
+        }
+    }
+
+    /** Returns the configured local callsign, or an empty string when none is configured. */
+    public synchronized String getCallsign() {
+        return callsign;
+    }
+
+    /** Sets the AX.25 destination used by controller-generated RF packets. */
+    public synchronized void setTxDestination(String value) {
+        txDestination = normalizeCallsign(value);
+    }
+
+    /** Sets a defensively copied AX.25 path for controller-generated RF packets. */
+    public synchronized void setTxPath(List<Digipeater> path) {
+        if (path == null || path.isEmpty()) {
+            txPath = Collections.emptyList();
+            return;
+        }
+        List<Digipeater> copy = new ArrayList<>();
+        for (Digipeater digipeater : path) {
+            copy.add(Objects.requireNonNull(digipeater, "path entry").copy());
+        }
+        txPath = Collections.unmodifiableList(copy);
     }
 
     /**
@@ -305,6 +321,9 @@ public final class AprsController {
                                  Transmission digipeated) {
         PersistedEvent persisted = repository.inTransaction(() -> persistPacket(packet, parsed));
         AprsEvent event = persisted.event;
+        if (event != null) {
+            updatePendingReliableEvent(event);
+        }
         if (event != null && event.getType() == AprsEvent.MESSAGE_TYPE) {
             notifyAndAcknowledge(event, persisted.created, packet.getSource());
         }
@@ -372,20 +391,33 @@ public final class AprsController {
         event = event.toBuilder().packetCount(event.getPacketCount() + 1)
             .lastSeenMs(Math.max(event.getLastSeenMs(), packet.getTimestampMs())).build();
         repository.update(event);
-        updatePendingReliableEvent(event);
         return event;
     }
 
     private void notifyAndAcknowledge(AprsEvent event, boolean notifyUser, String source) {
-        String callsign = callbacks.getCallsign();
-        if (callsign == null || event.getToCallsign() == null || !event.getToCallsign().trim().equalsIgnoreCase(callsign.trim())) {
+        if (callsign.isEmpty() || event.getToCallsign() == null
+            || !event.getToCallsign().trim().equalsIgnoreCase(callsign)) {
             return;
         }
         if (notifyUser) {
             callbacks.onIncomingMessage(event);
         }
-        if (AprsSource.RX_RF.equals(source) && event.getMessageIdentifier() != null && !event.getMessageIdentifier().trim().isEmpty()) {
-            callbacks.sendAcknowledgement(event.getFromCallsign().toUpperCase(Locale.ROOT), event.getMessageIdentifier(), event.getId());
+        if (AprsSource.RX_RF.equals(source) && event.getMessageIdentifier() != null
+            && !event.getMessageIdentifier().trim().isEmpty()) {
+            submitAcknowledgement(event);
+        }
+    }
+
+    private void submitAcknowledgement(AprsEvent event) {
+        if (txDestination.isEmpty()) {
+            LOG.fine("Skipping APRS acknowledgement because no TX destination is configured");
+            return;
+        }
+        APRSPacket acknowledgement = new APRSPacket(callsign, txDestination, txPath,
+            MessagePacket.createMessagePayload(event.getFromCallsign(), "ack" + event.getMessageIdentifier(), null));
+        Transmission transmission = callbacks.submitRf(acknowledgement.copy());
+        if (transmission != null) {
+            recordTransmissionNow(event.getId(), transmission);
         }
     }
 
@@ -421,19 +453,23 @@ public final class AprsController {
         try {
             APRSPacket frame = Parser.parse(tnc2);
             AprsPacket packet = physicalPacket(frame, AprsSource.TX_APRS_IS, null, null, tnc2);
-            repository.inTransaction(() -> {
+            AprsEvent updated = repository.inTransaction(() -> {
                 if (eventId == null) {
                     repository.insert(packet);
+                    return null;
                 } else {
                     AprsEvent event = repository.findById(eventId);
                     if (event == null) {
                         repository.insert(packet);
+                        return null;
                     } else {
-                        associatePacket(event, packet);
+                        return associatePacket(event, packet);
                     }
                 }
-                return null;
             });
+            if (updated != null) {
+                updatePendingReliableEvent(updated);
+            }
         } catch (Exception ex) {
             LOG.log(Level.FINE, "Ignoring malformed transmitted APRS-IS line", ex);
         }
@@ -445,7 +481,7 @@ public final class AprsController {
 
     private void recordTransmissionNow(Long eventId, Transmission transmission, boolean digipeated) {
         AprsPacket packet = physicalPacket(transmission.packet, AprsSource.TX_RF, transmission.frequencyHz, transmission.rawAx25);
-        repository.inTransaction(() -> {
+        AprsEvent updated = repository.inTransaction(() -> {
             if (eventId == null) {
                 repository.insert(packet);
                 return null;
@@ -455,10 +491,13 @@ public final class AprsController {
                 repository.insert(packet);
             } else {
                 event = event.toBuilder().digipeated(event.isDigipeated() || digipeated).build();
-                associatePacket(event, packet);
+                return associatePacket(event, packet);
             }
             return null;
         });
+        if (updated != null) {
+            updatePendingReliableEvent(updated);
+        }
     }
 
     /**
@@ -479,7 +518,7 @@ public final class AprsController {
         }
         if (positionBeaconingEnabled && now >= nextPositionBeaconAt) {
             nextPositionBeaconAt = now + positionBeaconIntervalMs;
-            callbacks.requestPositionBeacon();
+            submitPositionBeacon(callbacks.getBeaconData());
         }
     }
 
@@ -506,19 +545,26 @@ public final class AprsController {
             event = event.toBuilder().deliveryState(AprsEvent.DELIVERY_FAILED)
                 .nextRetryAtMs(null).build();
         } else {
-            Transmission transmission = callbacks.retryMessage(event);
-            if (transmission == null) {
-                event = event.toBuilder().nextRetryAtMs(now + RETRY_DELAYS_MS[0]).build();
+            APRSPacket original = loadRetryPacket(event);
+            if (original == null) {
+                event = event.toBuilder().deliveryState(AprsEvent.DELIVERY_FAILED)
+                    .nextRetryAtMs(null).build();
             } else {
-                AprsPacket packet = physicalPacket(transmission.packet, AprsSource.TX_RF, transmission.frequencyHz, transmission.rawAx25);
-                packet = packet.toBuilder().eventId(event.getId()).build();
-                retryPacket = packet;
-                int attempts = event.getTransmitAttempts() + 1;
-                event = event.toBuilder().packetCount(event.getPacketCount() + 1)
-                    .lastSeenMs(Math.max(event.getLastSeenMs(), packet.getTimestampMs()))
-                    .transmitAttempts(attempts)
-                    .nextRetryAtMs(attempts >= RETRY_DELAYS_MS.length + 1
-                        ? now + FINAL_ACK_GRACE_MS : now + RETRY_DELAYS_MS[attempts - 1]).build();
+                Transmission transmission = callbacks.submitRf(original.copy());
+                if (transmission == null) {
+                    event = event.toBuilder().nextRetryAtMs(now + RETRY_DELAYS_MS[0]).build();
+                } else {
+                    AprsPacket packet = physicalPacket(transmission.packet, AprsSource.TX_RF,
+                        transmission.frequencyHz, transmission.rawAx25);
+                    packet = packet.toBuilder().eventId(event.getId()).build();
+                    retryPacket = packet;
+                    int attempts = event.getTransmitAttempts() + 1;
+                    event = event.toBuilder().packetCount(event.getPacketCount() + 1)
+                        .lastSeenMs(Math.max(event.getLastSeenMs(), packet.getTimestampMs()))
+                        .transmitAttempts(attempts)
+                        .nextRetryAtMs(attempts >= RETRY_DELAYS_MS.length + 1
+                            ? now + FINAL_ACK_GRACE_MS : now + RETRY_DELAYS_MS[attempts - 1]).build();
+                }
             }
         }
         final AprsEvent updatedEvent = event;
@@ -531,6 +577,20 @@ public final class AprsController {
             return null;
         });
         updatePendingReliableEvent(event);
+    }
+
+    private APRSPacket loadRetryPacket(AprsEvent event) {
+        AprsPacket original = repository.findInitialRfTransmission(event.getId());
+        if (original == null || original.getRawAx25() == null) {
+            LOG.warning("Failing reliable message because its initial RF frame is unavailable");
+            return null;
+        }
+        try {
+            return Parser.parseAX25(original.getRawAx25());
+        } catch (Exception ex) {
+            LOG.log(Level.WARNING, "Failing reliable message because its initial RF frame is invalid", ex);
+            return null;
+        }
     }
 
     /**
@@ -612,7 +672,8 @@ public final class AprsController {
 
     private void persistOutgoingEvent(AprsEvent event, APRSPacket frame, Long frequencyHz, byte[] rawAx25) {
         event = event.toBuilder().dedupKey(logicalPacketKey(frame)).build();
-        AprsPacket packet = physicalPacket(frame, AprsSource.TX_RF, frequencyHz, rawAx25);
+        AprsPacket packet = physicalPacket(frame, AprsSource.TX_RF, frequencyHz,
+            rawAx25 == null ? frame.toAX25Frame() : rawAx25);
         final AprsEvent eventToPersist = event;
         final AprsPacket packetToPersist = packet;
         event = repository.inTransaction(() -> {
@@ -622,6 +683,81 @@ public final class AprsController {
             return persistedEvent;
         });
         updatePendingReliableEvent(event);
+    }
+
+    private void submitPositionBeacon(BeaconData beacon) {
+        if (beacon == null || callsign.isEmpty() || txDestination.isEmpty()) {
+            return;
+        }
+        APRSPacket packet = new APRSPacket(callsign, txDestination, txPath,
+            encodeBeacon(beacon).getBytes(StandardCharsets.US_ASCII));
+        Transmission transmission = callbacks.submitRf(packet.copy());
+        if (transmission != null) {
+            recordPositionBeacon(callsign, beacon.getLatitude(), beacon.getLongitude(),
+                transmission.frequencyHz, transmission.packet, transmission.rawAx25);
+        }
+    }
+
+    private String encodeBeacon(BeaconData beacon) {
+        char table = beacon.getSymbolTable() == null ? '/' : beacon.getSymbolTable();
+        char code = beacon.getSymbolCode() == null ? '>' : beacon.getSymbolCode();
+        StringBuilder value = new StringBuilder("!").append(formatLatitude(beacon.getLatitude()))
+            .append(table).append(formatLongitude(beacon.getLongitude())).append(code);
+        if (beacon.getCourseDegrees() != null && beacon.getSpeedKnots() != null) {
+            value.append(String.format(Locale.ROOT, "%03d/%03d", beacon.getCourseDegrees(),
+                Math.round(beacon.getSpeedKnots())));
+        }
+        if (beacon.getAltitudeMeters() != null) {
+            value.append(String.format(Locale.ROOT, "/A=%06d",
+                Math.round(beacon.getAltitudeMeters() * 3.28084D)));
+        }
+        appendWeather(value, beacon.getWeather());
+        if (beacon.getComment() != null) {
+            value.append(beacon.getComment());
+        }
+        return value.toString();
+    }
+
+    private void appendWeather(StringBuilder value, BeaconData.WeatherData weather) {
+        if (weather == null) {
+            return;
+        }
+        value.append('_');
+        if (weather.getWindDirectionDegrees() != null && weather.getWindSpeedKnots() != null) {
+            value.append(String.format(Locale.ROOT, "%03d/%03d", weather.getWindDirectionDegrees(),
+                weather.getWindSpeedKnots()));
+        }
+        if (weather.getWindGustKnots() != null) {
+            value.append(String.format(Locale.ROOT, "g%03d", weather.getWindGustKnots()));
+        }
+        if (weather.getTemperatureCelsius() != null) {
+            value.append(String.format(Locale.ROOT, "t%03d",
+                Math.round(weather.getTemperatureCelsius() * 9D / 5D + 32D)));
+        }
+        if (weather.getHumidityPercent() != null) {
+            int humidity = weather.getHumidityPercent() == 100 ? 0 : weather.getHumidityPercent();
+            value.append(String.format(Locale.ROOT, "h%02d", humidity));
+        }
+        if (weather.getPressureHectopascals() != null) {
+            value.append(String.format(Locale.ROOT, "b%05d",
+                Math.round(weather.getPressureHectopascals() * 10D)));
+        }
+    }
+
+    private String formatLatitude(double value) {
+        return formatCoordinate(value, true);
+    }
+
+    private String formatLongitude(double value) {
+        return formatCoordinate(value, false);
+    }
+
+    private String formatCoordinate(double value, boolean latitude) {
+        double absolute = Math.abs(value);
+        int degrees = (int) absolute;
+        double minutes = (absolute - degrees) * 60D;
+        return String.format(Locale.ROOT, latitude ? "%02d%05.2f%c" : "%03d%05.2f%c",
+            degrees, minutes, latitude ? value < 0 ? 'S' : 'N' : value < 0 ? 'W' : 'E');
     }
 
     private void loadPendingReliableEvents() {
@@ -797,8 +933,8 @@ public final class AprsController {
     }
 
     private Transmission maybeDigipeat(APRSPacket packet) {
-        String localCallsign = callbacks.getCallsign();
-        if (!digipeatingEnabled || localCallsign == null || localCallsign.trim().isEmpty()
+        String localCallsign = callsign;
+        if (!digipeatingEnabled || localCallsign.isEmpty()
             || packet == null || packet.getPayload() == null || packet.hasFault()) {
             return null;
         }
@@ -833,7 +969,7 @@ public final class AprsController {
         }
         APRSPacket retransmit = new APRSPacket(packet.getSourceCall(), packet.getDestinationCall(), replacement, packet.getPayload().getRawBytes());
         retransmit.setComment(packet.getComment());
-        Transmission transmission = callbacks.transmitDigipeatedPacket(retransmit.copy());
+        Transmission transmission = callbacks.submitRf(retransmit.copy());
         if (transmission != null) {
             digipeatInputCache.put(key, now);
             digipeatOutputCache.put(digipeatOutputKey(retransmit), now);
@@ -892,9 +1028,12 @@ public final class AprsController {
             return;
         }
         String tnc2 = igateLine(packet, 0);
-        String callsign = normalizeAx25Address(callbacks.getCallsign());
+        String callsign = normalizeAx25Address(this.callsign);
         if (tnc2 != null && !callsign.isEmpty()) {
-            callbacks.gateToAprsIs(appendIgateConstruct(tnc2, callsign), eventId);
+            String gated = appendIgateConstruct(tnc2, callsign);
+            if (gated != null) {
+                callbacks.submitAprsIs(gated, () -> recordAprsIsTransmission(eventId, gated));
+            }
         }
     }
 

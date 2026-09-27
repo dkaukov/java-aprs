@@ -101,12 +101,20 @@ writes. Do not blindly retry a controller call after a repository failure: it ca
 packet or event. Reconcile persisted records first, or use an atomic `inTransaction(...)`
 implementation.
 
-Callbacks describe operations the application performs: obtaining the local callsign,
-handling a newly created addressed message, transmitting ACKs/retries/digipeats, making
-position beacons, and forwarding an accepted iGate line. A retry or digipeat callback
-returns a `Transmission` only when the TNC/radio transport accepted the frame; `null` means it
-did not. This records submission, not an on-air transmission or peer receipt. For reliable
-messages, only a matching APRS ACK establishes delivery.
+Configure protocol identity on the controller, then provide transport-only callbacks:
+
+```java
+controller.setCallsign("VK3ME-9");
+controller.setTxDestination("APKVPA"); // application-specific example, never a library default
+controller.setTxPath(Collections.singletonList(new Digipeater("WIDE1-1")));
+```
+
+The controller constructs ACKs, retries, digipeated frames, and RF-to-APRS-IS qAO lines.
+`Callbacks.submitRf(packet)` receives only the concrete packet selected for submission; it
+returns a `Transmission` only when the TNC/radio transport accepted the frame. This records
+submission, not on-air transmission or peer receipt. For reliable messages, only a matching
+APRS ACK establishes delivery. `submitAprsIs(line, onSuccess)` must invoke `onSuccess` only
+after successful socket submission so the controller can record TX_APRS_IS history.
 
 ### Reliable messages and `tick()`
 
@@ -201,11 +209,7 @@ abstract class AndroidCallbacks implements AprsController.Callbacks {
         mainHandler.post(() -> viewModel.onIncomingMessage(event));
     }
 
-    @Override public AprsController.Transmission retryMessage(AprsEvent event) {
-        return submitToTnc(buildRetryPacket(event));
-    }
-
-    @Override public AprsController.Transmission transmitDigipeatedPacket(APRSPacket packet) {
+    @Override public AprsController.Transmission submitRf(APRSPacket packet) {
         return submitToTnc(packet);
     }
 
@@ -216,8 +220,8 @@ abstract class AndroidCallbacks implements AprsController.Callbacks {
             : null;
     }
 
-    // Implement getCallsign(), sendAcknowledgement(), requestPositionBeacon(), and
-    // gateToAprsIs() for the application; their transport work also runs synchronously here.
+    // Implement submitAprsIs(...) and getBeaconData(); protocol packet selection
+    // remains in AprsController and transport work runs synchronously here.
 }
 ```
 
