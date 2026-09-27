@@ -372,6 +372,7 @@ public final class AprsController {
             event = candidate.toBuilder().id(repository.insert(candidate)).build();
             packet = packet.toBuilder().eventId(event.getId()).build();
             repository.insert(packet);
+            repository.onEventPersisted(event);
         } else {
             event = mergeObservation(event, candidate);
             event = associatePacket(event, packet);
@@ -391,6 +392,7 @@ public final class AprsController {
         event = event.toBuilder().packetCount(event.getPacketCount() + 1)
             .lastSeenMs(Math.max(event.getLastSeenMs(), packet.getTimestampMs())).build();
         repository.update(event);
+        repository.onEventPersisted(event);
         return event;
     }
 
@@ -574,6 +576,7 @@ public final class AprsController {
                 repository.insert(packetToPersist);
             }
             repository.update(updatedEvent);
+            repository.onEventPersisted(updatedEvent);
             return null;
         });
         updatePendingReliableEvent(event);
@@ -680,6 +683,7 @@ public final class AprsController {
             AprsEvent persistedEvent = eventToPersist.toBuilder()
                 .id(repository.insert(eventToPersist)).build();
             repository.insert(packetToPersist.toBuilder().eventId(persistedEvent.getId()).build());
+            repository.onEventPersisted(persistedEvent);
             return persistedEvent;
         });
         updatePendingReliableEvent(event);

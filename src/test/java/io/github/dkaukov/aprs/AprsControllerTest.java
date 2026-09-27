@@ -81,6 +81,18 @@ public class AprsControllerTest {
         assertEquals(2, f.packets.records.size());
     }
 
+    @Test public void repositoryProjectionRunsInsideTransactionWithFinalEvent() {
+        Fixture f = fixture();
+        APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
+        f.controller.setTxDestination(null);
+
+        f.controller.handle(packet, AprsSource.RX_RF, null, packet.toAX25Frame());
+
+        assertEquals(1, f.repository.projectedEvents.size());
+        assertEquals(1L, f.repository.projectedEvents.get(0).getId());
+        assertTrue(f.repository.projectionRanInTransaction);
+    }
+
     @Test public void incomingMessageCallbacksRunAfterRepositoryTransaction() {
         Fixture f = fixture();
         APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
@@ -1124,6 +1136,8 @@ public class AprsControllerTest {
         int transactionDepth;
         boolean failCommitAfterBody;
         boolean allowSyntheticInitialFrame = true;
+        final List<AprsEvent> projectedEvents = new ArrayList<>();
+        boolean projectionRanInTransaction;
 
         FakeRepository(FakePacketRepository packets, FakeEventRepository events) {
             this.packets = packets;
@@ -1154,6 +1168,10 @@ public class AprsControllerTest {
         @Override public long insert(AprsPacket packet) { return packets.insert(packet); }
         @Override public long insert(AprsEvent event) { return events.insert(event); }
         @Override public void update(AprsEvent event) { events.update(event); }
+        @Override public void onEventPersisted(AprsEvent event) {
+            projectionRanInTransaction = transactionDepth > 0;
+            projectedEvents.add(event);
+        }
         @Override public List<AprsEvent> loadPendingReliableEvents() {
             return events.loadPendingReliableEvents();
         }
