@@ -412,7 +412,7 @@ public final class AprsController {
 
     private void notifyAndAcknowledge(AprsEvent event, boolean notifyUser, String source) {
         boolean forLocal = !callsign.isEmpty() && event.getToCallsign() != null
-            && event.getToCallsign().trim().equalsIgnoreCase(callsign);
+            && normalizeAx25Address(event.getToCallsign()).equals(normalizeAx25Address(callsign));
         if (notifyUser) {
             callbacks.onIncomingMessage(event, forLocal);
         }

@@ -117,6 +117,17 @@ public class AprsControllerTest {
         assertEquals(0, f.callbacks.acknowledgementCount);
     }
 
+    @Test public void incomingMessageTreatsExplicitZeroSsidAsLocal() {
+        Fixture f = fixture();
+        f.controller.setCallsign("VK3ME-0");
+        APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
+
+        f.controller.handle(packet, AprsSource.RX_RF, null, packet.toAX25Frame());
+
+        assertTrue(f.callbacks.lastIncomingMessageForLocal);
+        assertEquals(1, f.callbacks.acknowledgementCount);
+    }
+
     @Test public void controllerConstructsAcknowledgementFromConfiguredEnvelope() {
         Fixture f = fixture();
         f.controller.setTxDestination("apkva");
