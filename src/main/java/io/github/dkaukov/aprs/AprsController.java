@@ -148,17 +148,37 @@ public final class AprsController {
      */
     public enum RfTransmissionPurpose {
         /** A controller-generated acknowledgement for an incoming numbered message. */
-        ACKNOWLEDGEMENT,
+        ACKNOWLEDGEMENT(false),
         /** A retransmission of an outgoing reliable APRS message. */
-        RELIABLE_MESSAGE_RETRY,
+        RELIABLE_MESSAGE_RETRY(true),
         /** A controller-generated position or positioned-weather beacon. */
-        POSITION_BEACON,
+        POSITION_BEACON(false),
         /** An initial outgoing reliable APRS message addressed to one station. */
-        OUTGOING_MESSAGE,
+        OUTGOING_MESSAGE(true),
         /** An initial outgoing bulletin, CQ, QST, or ALL broadcast message. */
-        BROADCAST,
+        BROADCAST(false),
         /** A fill-in digipeater retransmission of an eligible received RF packet. */
-        DIGIPEATED_PACKET
+        DIGIPEATED_PACKET(false);
+
+        private final boolean expectsAcknowledgement;
+
+        RfTransmissionPurpose(boolean expectsAcknowledgement) {
+            this.expectsAcknowledgement = expectsAcknowledgement;
+        }
+
+        /**
+         * Whether this submission is a reliable APRS message for which a matching ACK or REJ is
+         * expected from the remote station.
+         *
+         * <p>This describes APRS protocol semantics, not local transport acceptance or on-air
+         * delivery. The controller records only accepted submissions and uses a matching APRS
+         * acknowledgement to resolve reliable message state.</p>
+         *
+         * @return {@code true} for an initial reliable message or its retry
+         */
+        public boolean expectsAcknowledgement() {
+            return expectsAcknowledgement;
+        }
     }
 
     /**

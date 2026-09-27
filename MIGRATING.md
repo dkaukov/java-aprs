@@ -209,6 +209,7 @@ ACK, retry, beacon, or digipeated packet selected by the controller, an optional
 frequency in Hz, and its explicit purpose. Retries use the initial persisted TX frequency. Use
 the purpose to apply radio policy without parsing packet content, for example by temporarily
 retuning for an ACK or beacon while declining a retry or digipeated packet on a different frequency.
+`purpose.expectsAcknowledgement()` is true only for reliable direct-message submissions and retries.
 Use `postMessage(to, text, frequencyHz)` for controller-owned initial messages. Direct messages
 are submitted as `OUTGOING_MESSAGE` and receive a generated APRS message identifier; CQ, BLN*,
 QST, and ALL messages are submitted as `BROADCAST` without retries.

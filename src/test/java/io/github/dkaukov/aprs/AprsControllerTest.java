@@ -1219,6 +1219,15 @@ public class AprsControllerTest {
         assertFalse(AprsController.requiresAcknowledgement(null));
     }
 
+    @Test public void rfTransmissionPurposeDescribesReliableMessageAcknowledgement() {
+        assertTrue(AprsController.RfTransmissionPurpose.OUTGOING_MESSAGE.expectsAcknowledgement());
+        assertTrue(AprsController.RfTransmissionPurpose.RELIABLE_MESSAGE_RETRY.expectsAcknowledgement());
+        assertFalse(AprsController.RfTransmissionPurpose.ACKNOWLEDGEMENT.expectsAcknowledgement());
+        assertFalse(AprsController.RfTransmissionPurpose.POSITION_BEACON.expectsAcknowledgement());
+        assertFalse(AprsController.RfTransmissionPurpose.BROADCAST.expectsAcknowledgement());
+        assertFalse(AprsController.RfTransmissionPurpose.DIGIPEATED_PACKET.expectsAcknowledgement());
+    }
+
     private Fixture fixture() {
         return fixture(Clock.systemUTC());
     }

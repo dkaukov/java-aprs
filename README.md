@@ -114,7 +114,9 @@ The controller constructs ACKs, retries, digipeated frames, and RF-to-APRS-IS qA
 submission, an optional RF frequency request, and an explicit controller-defined purpose.
 Retries use the initial persisted TX frequency. Transport implementations can use the purpose to
 allow temporary retuning for ACKs and beacons while declining retries or digipeated packets when
-the requested frequency is unavailable. Return a `Transmission` only when the TNC/radio accepted
+the requested frequency is unavailable. `purpose.expectsAcknowledgement()` is true only for an
+initial reliable message or its retry; it describes APRS delivery semantics, not local transport
+acceptance. Return a `Transmission` only when the TNC/radio accepted
 the frame. Return an `AprsController.RfTransmission` without a transmission and
 with `retryAllowed=false` to cancel a reliable-message retry; otherwise a refused retry remains
 scheduled. This records submission, not on-air transmission or peer receipt. For reliable
