@@ -115,4 +115,16 @@ public interface AprsRepository {
      * @return immutable pending event, or {@code null}
      */
     AprsEvent findPendingOutgoingEvent(String localCallsign, String remoteCallsign, String messageIdentifier);
+
+    /**
+     * Finds the first RF submission recorded for an outgoing reliable-message event.
+     *
+     * <p>The returned immutable packet must have source {@link AprsSource#TX_RF}, belong to
+     * {@code eventId}, and be selected using stable insertion order. It should retain raw AX.25
+     * bytes when available so the controller can reconstruct the original retry frame.</p>
+     *
+     * @param eventId persistent reliable-message event identifier
+     * @return initial immutable RF submission, or {@code null} when unavailable
+     */
+    AprsPacket findInitialRfTransmission(long eventId);
 }

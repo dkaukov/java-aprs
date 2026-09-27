@@ -76,9 +76,9 @@ public class AprsControllerTest {
 
         f.controller.handle(packet, AprsSource.RX_RF, 144_390_000L, packet.toAX25Frame());
 
-        assertEquals(1, f.repository.transactionCount);
+        assertEquals(2, f.repository.transactionCount);
         assertEquals(1, f.events.records.size());
-        assertEquals(1, f.packets.records.size());
+        assertEquals(2, f.packets.records.size());
     }
 
     @Test public void incomingMessageCallbacksRunAfterRepositoryTransaction() {
@@ -89,6 +89,101 @@ public class AprsControllerTest {
 
         assertFalse(f.callbacks.incomingMessageDuringTransaction);
         assertFalse(f.callbacks.acknowledgementDuringTransaction);
+    }
+
+    @Test public void controllerConstructsAcknowledgementFromConfiguredEnvelope() {
+        Fixture f = fixture();
+        f.controller.setTxDestination("apkva");
+        f.controller.setTxPath(Collections.singletonList(new Digipeater("WIDE1-1")));
+        APRSPacket incoming = directMessage("VK3ABC", "VK3ME", "hello", "A7");
+
+        f.controller.handle(incoming, AprsSource.RX_RF, 144_390_000L, incoming.toAX25Frame());
+
+        APRSPacket acknowledgement = f.callbacks.lastTransmission.getPacket();
+        MessagePacket message = new MessagePacket(acknowledgement.getPayload().getRawBytes(),
+            acknowledgement.getDestinationCall());
+        assertEquals("VK3ME", acknowledgement.getSourceCall());
+        assertEquals("APKVA", acknowledgement.getDestinationCall());
+        assertEquals("WIDE1-1", acknowledgement.getDigipeaters().get(0).toString());
+        assertEquals("VK3ABC", message.getTargetCallsign());
+        assertEquals("ack", message.getMessageBody());
+        assertTrue(new String(acknowledgement.getPayload().getRawBytes(),
+            StandardCharsets.ISO_8859_1).endsWith("ackA7"));
+        assertEquals(AprsSource.TX_RF, f.packets.records.get(1).getSource());
+    }
+
+    @Test public void missingIdentityOrDestinationSkipsAutomaticAcknowledgementAndIgate() {
+        Fixture f = fixture();
+        APRSPacket incoming = directMessage("VK3ABC", "VK3ME", "hello", "A7");
+        f.controller.setCallsign(null);
+        f.controller.setIgateEnabled(true);
+        f.controller.handle(incoming, AprsSource.RX_RF, null, incoming.toAX25Frame());
+        assertEquals(0, f.callbacks.acknowledgementCount);
+        assertEquals(0, f.callbacks.igateCount);
+
+        f.controller.setCallsign("VK3ME");
+        f.controller.setTxDestination(null);
+        f.controller.handle(incoming, AprsSource.RX_RF, null, incoming.toAX25Frame());
+        assertEquals(0, f.callbacks.acknowledgementCount);
+    }
+
+    @Test public void changingCallsignClearsDigipeatSuppression() {
+        Fixture f = fixture();
+        f.controller.setDigipeatingEnabled(true);
+        APRSPacket packet = packetWithPath("WIDE1-1");
+        f.controller.handle(packet, AprsSource.RX_RF, null, packet.toAX25Frame());
+        f.controller.setCallsign("VK3NEW");
+        f.controller.handle(packet, AprsSource.RX_RF, null, packet.toAX25Frame());
+        assertEquals(2, f.callbacks.digipeatCount);
+    }
+
+    @Test public void failedCommitDoesNotRemoveReliableEventFromRetryCache() {
+        Fixture f = fixture();
+        f.events.records.add(pendingEvent("VK3ABC", "7", 0L, 1).toBuilder().id(1).build());
+        f.controller.tick(-1L);
+        f.repository.failCommitAfterBody = true;
+
+        try {
+            f.controller.handle(deliveryResponse("VK3ABC", "ack7"), AprsSource.RX_RF, null, null);
+            throw new AssertionError("Expected transaction failure");
+        } catch (IllegalStateException expected) {
+            // The repository rolled back after executing the transaction body.
+        }
+
+        f.controller.tick(0L);
+        assertEquals(1, f.callbacks.retryCount);
+        assertEquals(AprsEvent.DELIVERY_PENDING, f.events.findById(1).getDeliveryState());
+    }
+
+    @Test public void retryAfterRestartUsesPersistedInitialRfFrame() {
+        Fixture f = fixture();
+        APRSPacket original = outgoingMessage("VK3ME", "VK3ABC", "hello", "7");
+        f.controller.recordOutgoingMessage("VK3ME", "VK3ABC", "hello", "7", null,
+            original, null);
+        long retryAt = f.events.records.get(0).getNextRetryAtMs();
+        FakeCallbacks restartedCallbacks = new FakeCallbacks();
+        restartedCallbacks.repository = f.repository;
+        AprsController restarted = new AprsController(f.repository, restartedCallbacks,
+            Clock.fixed(Instant.ofEpochMilli(retryAt), ZoneOffset.UTC));
+
+        restarted.tick(retryAt);
+
+        assertEquals(1, restartedCallbacks.retryCount);
+        assertArrayEquals(original.toAX25Frame(),
+            restartedCallbacks.lastTransmission.getRawAx25());
+    }
+
+    @Test public void missingInitialRetryFrameFailsReliableMessage() {
+        Fixture f = fixture();
+        f.repository.allowSyntheticInitialFrame = false;
+        f.events.records.add(pendingEvent("VK3ABC", "7", 0L, 1).toBuilder().id(1).build());
+
+        f.controller.tick(0L);
+
+        AprsEvent event = f.events.findById(1);
+        assertEquals(AprsEvent.DELIVERY_FAILED, event.getDeliveryState());
+        assertNull(event.getNextRetryAtMs());
+        assertEquals(0, f.callbacks.retryCount);
     }
 
     @Test public void rawFallbackPreservesHighWireBytes() {
@@ -103,8 +198,8 @@ public class AprsControllerTest {
         APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
         runConcurrently(16, () -> f.controller.handle(packet, AprsSource.RX_RF, null, null));
         assertEquals(1, f.events.records.size());
-        assertEquals(16, f.events.records.get(0).getPacketCount());
-        assertEquals(16, f.packets.records.size());
+        assertEquals(32, f.events.records.get(0).getPacketCount());
+        assertEquals(32, f.packets.records.size());
         assertEquals(1, f.callbacks.notificationCount);
         assertEquals(16, f.callbacks.acknowledgementCount);
     }
@@ -174,13 +269,13 @@ public class AprsControllerTest {
         f.controller.handle(frame, AprsSource.RX_RF, 145_175_000L, raw);
 
         assertEquals(1, f.events.records.size());
-        assertEquals(1, f.packets.records.size());
+        assertEquals(2, f.packets.records.size());
         AprsEvent event = f.events.records.get(0);
         AprsPacket packet = f.packets.records.get(0);
         assertEquals(AprsEvent.MESSAGE_TYPE, event.getType());
         assertEquals("A7", event.getMessageIdentifier());
         assertEquals("hello", event.getBody());
-        assertEquals(1, event.getPacketCount());
+        assertEquals(2, event.getPacketCount());
         assertEquals(Long.valueOf(event.getId()), packet.getEventId());
         assertEquals(AprsSource.RX_RF, packet.getSource());
         assertEquals(Long.valueOf(145_175_000L), packet.getFrequencyHz());
@@ -196,9 +291,9 @@ public class AprsControllerTest {
         f.controller.handle(frame, AprsSource.RX_RF, 144_390_000L, frame.toAX25Frame());
         f.controller.handle(frame, AprsSource.RX_RF, 144_390_000L, frame.toAX25Frame());
 
-        assertEquals(2, f.packets.records.size());
+        assertEquals(4, f.packets.records.size());
         assertEquals(1, f.events.records.size());
-        assertEquals(2, f.events.records.get(0).getPacketCount());
+        assertEquals(4, f.events.records.get(0).getPacketCount());
         assertEquals(1, f.callbacks.notificationCount);
         assertEquals(2, f.callbacks.acknowledgementCount);
         assertEquals("VK3ABC", f.callbacks.lastIncomingMessage.getFromCallsign());
@@ -217,7 +312,7 @@ public class AprsControllerTest {
         f.controller.handle(frame, AprsSource.RX_RF, 144_390_000L, frame.toAX25Frame());
 
         assertEquals(1, f.events.records.size());
-        assertEquals(2, f.events.records.get(0).getPacketCount());
+        assertEquals(4, f.events.records.get(0).getPacketCount());
     }
 
     @Test public void copiesOfPositionViaDifferentPathsCollapseIntoOneEvent() throws Exception {
@@ -637,15 +732,15 @@ public class AprsControllerTest {
         f.controller.handle(frame, AprsSource.RX_RF, 144_390_000L, frame.toAX25Frame());
 
         assertEquals(1, f.callbacks.digipeatCount);
-        assertEquals(3, f.packets.records.size());
+        assertEquals(5, f.packets.records.size());
         assertEquals(1, f.events.records.size());
-        assertEquals(3, f.events.records.get(0).getPacketCount());
+        assertEquals(5, f.events.records.get(0).getPacketCount());
         assertTrue(f.events.records.get(0).isDigipeated());
     }
 
     @Test public void fillInDigipeaterReplacesWideOneOneWithItsCallsign() {
         Fixture f = fixture();
-        f.callbacks.callsign = "VK3ME-9";
+        f.controller.setCallsign("VK3ME-9");
         f.controller.setDigipeatingEnabled(true);
         APRSPacket frame = packetWithPath("WIDE1-1");
 
@@ -667,7 +762,7 @@ public class AprsControllerTest {
 
     @Test public void explicitDigipeaterAddressRequiresMatchingSsid() {
         Fixture f = fixture();
-        f.callbacks.callsign = "VK3ME-9";
+        f.controller.setCallsign("VK3ME-9");
         f.controller.setDigipeatingEnabled(true);
         APRSPacket wrongSsid = packetWithPath("VK3ME-1");
         APRSPacket exactAddress = packetWithPath("VK3ME-9");
@@ -783,10 +878,8 @@ public class AprsControllerTest {
 
         assertEquals(1, f.callbacks.igateCount);
         assertEquals("VK3ABC>APRS,WIDE1-1,qAO,VK3ME:>test", f.callbacks.lastIgateLine);
-        assertEquals(Long.valueOf(f.events.records.get(0).getId()), f.callbacks.lastIgateEventId);
-
-        f.controller.recordAprsIsTransmission(f.callbacks.lastIgateEventId,
-            f.callbacks.lastIgateLine);
+        assertEquals(1, f.packets.records.size());
+        f.callbacks.lastIgateSuccess.run();
         assertEquals(2, f.packets.records.size());
         AprsPacket uploaded = f.packets.records.get(1);
         assertEquals(AprsSource.TX_APRS_IS, uploaded.getSource());
@@ -884,8 +977,10 @@ public class AprsControllerTest {
         FakeRepository repository = new FakeRepository(packets, events);
         FakeCallbacks callbacks = new FakeCallbacks();
         callbacks.repository = repository;
-        return new Fixture(repository, packets, events, callbacks,
-            new AprsController(repository, callbacks, clock));
+        AprsController controller = new AprsController(repository, callbacks, clock);
+        controller.setCallsign(callbacks.callsign);
+        controller.setTxDestination("APRS");
+        return new Fixture(repository, packets, events, callbacks, controller);
     }
 
     private APRSPacket directMessage(String from, String to, String body, String identifier) {
@@ -1027,6 +1122,8 @@ public class AprsControllerTest {
         private final FakeEventRepository events;
         int transactionCount;
         int transactionDepth;
+        boolean failCommitAfterBody;
+        boolean allowSyntheticInitialFrame = true;
 
         FakeRepository(FakePacketRepository packets, FakeEventRepository events) {
             this.packets = packets;
@@ -1035,9 +1132,20 @@ public class AprsControllerTest {
 
         @Override public <T> T inTransaction(Supplier<T> operation) {
             transactionCount++;
+            List<AprsPacket> packetsBefore = new ArrayList<>(packets.records);
+            List<AprsEvent> eventsBefore = new ArrayList<>(events.records);
             transactionDepth++;
             try {
-                return operation.get();
+                T result = operation.get();
+                if (failCommitAfterBody) {
+                    failCommitAfterBody = false;
+                    packets.records.clear();
+                    packets.records.addAll(packetsBefore);
+                    events.records.clear();
+                    events.records.addAll(eventsBefore);
+                    throw new IllegalStateException("simulated commit failure");
+                }
+                return result;
             } finally {
                 transactionDepth--;
             }
@@ -1057,6 +1165,24 @@ public class AprsControllerTest {
                                                              String identifier) {
             return events.findPendingOutgoingEvent(local, remote, identifier);
         }
+        @Override public AprsPacket findInitialRfTransmission(long eventId) {
+            for (AprsPacket packet : packets.records) {
+                if (Long.valueOf(eventId).equals(packet.getEventId())
+                    && AprsSource.TX_RF.equals(packet.getSource())) {
+                    return packet;
+                }
+            }
+            AprsEvent event = events.findById(eventId);
+            if (event == null || !allowSyntheticInitialFrame) {
+                return null;
+            }
+            APRSPacket frame = new APRSPacket(event.getFromCallsign(), "DST",
+                Collections.singletonList(new Digipeater("WIDE1-1")),
+                MessagePacket.createMessagePayload(event.getToCallsign(), event.getBody(),
+                    event.getMessageIdentifier()));
+            return AprsPacket.builder().eventId(eventId).source(AprsSource.TX_RF)
+                .rawAx25(frame.toAX25Frame()).build();
+        }
     }
 
     private static final class FakeCallbacks implements AprsController.Callbacks {
@@ -1073,6 +1199,7 @@ public class AprsControllerTest {
         APRSPacket lastDigipeatedPacket;
         String lastIgateLine;
         Long lastIgateEventId;
+        Runnable lastIgateSuccess;
         Runnable onGetCallsign;
         boolean mutateTransmittedPacket;
         FakeRepository repository;
@@ -1080,48 +1207,34 @@ public class AprsControllerTest {
         boolean acknowledgementDuringTransaction;
         AprsController.Transmission lastTransmission;
 
-        @Override public String getCallsign() {
-            if (onGetCallsign != null) {
-                Runnable action = onGetCallsign;
-                onGetCallsign = null;
-                action.run();
-            }
-            return callsign;
-        }
-
         @Override public void onIncomingMessage(AprsEvent event) {
             incomingMessageDuringTransaction = repository.transactionDepth > 0;
             notificationCount++;
             lastIncomingMessage = event;
         }
 
-        @Override public void sendAcknowledgement(String destination, String identifier,
-                                                  long eventId) {
-            acknowledgementDuringTransaction = repository.transactionDepth > 0;
-            acknowledgementCount++;
-        }
-
-        @Override public AprsController.Transmission retryMessage(AprsEvent event) {
-            retryCount++;
-            if (!retrySucceeds) {
-                return null;
+        @Override public AprsController.Transmission submitRf(APRSPacket packet) {
+            String payload = new String(packet.getPayload().getRawBytes(), StandardCharsets.ISO_8859_1);
+            acknowledgementDuringTransaction = repository != null && repository.transactionDepth > 0;
+            if (payload.contains(":ack")) {
+                acknowledgementCount++;
+                return transmission(packet);
             }
-            APRSPacket packet = new APRSPacket(event.getFromCallsign(), "DST", Collections.singletonList(new Digipeater("WIDE1-1")),
-                MessagePacket.createMessagePayload(event.getToCallsign(), event.getBody(), event.getMessageIdentifier()));
-            return transmission(packet);
-        }
-
-        @Override public void requestPositionBeacon() {
-            beaconCount++;
-        }
-
-        @Override public AprsController.Transmission transmitDigipeatedPacket(APRSPacket packet) {
+            if ("VK3ME".equals(packet.getSourceCall())) {
+                retryCount++;
+                return retrySucceeds ? transmission(packet) : null;
+            }
             digipeatCount++;
             if (!digipeatSucceeds) {
                 return null;
             }
             lastDigipeatedPacket = packet;
             return transmission(packet);
+        }
+
+        @Override public BeaconData getBeaconData() {
+            beaconCount++;
+            return null;
         }
 
         private AprsController.Transmission transmission(APRSPacket packet) {
@@ -1134,10 +1247,15 @@ public class AprsControllerTest {
             return lastTransmission;
         }
 
-        @Override public boolean gateToAprsIs(String tnc2, Long eventId) {
+        @Override public boolean submitAprsIs(String tnc2, Runnable onSuccess) {
+            if (onGetCallsign != null) {
+                Runnable action = onGetCallsign;
+                onGetCallsign = null;
+                action.run();
+            }
             igateCount++;
             lastIgateLine = tnc2;
-            lastIgateEventId = eventId;
+            lastIgateSuccess = onSuccess;
             return true;
         }
     }

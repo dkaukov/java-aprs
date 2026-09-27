@@ -1,0 +1,69 @@
+/*
+ * This file is licensed under the GNU General Public License v3.0.
+ *
+ * You may obtain a copy of the License at
+ * https://www.gnu.org/licenses/gpl-3.0.html
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ */
+
+package io.github.dkaukov.aprs;
+
+import lombok.Builder;
+import lombok.Data;
+
+/**
+ * Immutable application-supplied content for one controller-generated position beacon.
+ *
+ * <p>Latitude and longitude are required. All boxed fields are optional: {@code null} means do
+ * not include that APRS extension in the generated packet. Symbol values default to {@code '/'}
+ * and {@code '>'} when omitted.</p>
+ */
+@Data
+@Builder(toBuilder = true)
+public final class BeaconData {
+    /** Latitude in decimal degrees. */
+    private final double latitude;
+    /** Longitude in decimal degrees. */
+    private final double longitude;
+    /** APRS symbol-table identifier, or {@code null} for the primary table. */
+    private final Character symbolTable;
+    /** APRS symbol code, or {@code null} for the car symbol. */
+    private final Character symbolCode;
+    /** Altitude in metres, or {@code null} to omit altitude. */
+    private final Double altitudeMeters;
+    /** Ground speed in knots, or {@code null} when course/speed is unavailable. */
+    private final Double speedKnots;
+    /** Course in degrees true, or {@code null} when course/speed is unavailable. */
+    private final Integer courseDegrees;
+    /** Optional APRS comment appended after extensions. */
+    private final String comment;
+    /** Optional weather extension, or {@code null} to omit weather. */
+    private final WeatherData weather;
+
+    /**
+     * Optional immutable weather measurements encoded with this beacon.
+     *
+     * <p>Each value is independently optional. {@code null} omits its corresponding APRS weather
+     * component; wind direction and speed are emitted only when both are supplied.</p>
+     */
+    @Data
+    @Builder(toBuilder = true)
+    public static final class WeatherData {
+        /** Wind direction in degrees true, or {@code null}. */
+        private final Integer windDirectionDegrees;
+        /** Wind speed in knots, or {@code null}. */
+        private final Integer windSpeedKnots;
+        /** Wind gust in knots, or {@code null}. */
+        private final Integer windGustKnots;
+        /** Air temperature in degrees Celsius, or {@code null}. */
+        private final Double temperatureCelsius;
+        /** Relative humidity percentage, or {@code null}. */
+        private final Integer humidityPercent;
+        /** Barometric pressure in hectopascals, or {@code null}. */
+        private final Double pressureHectopascals;
+    }
+}

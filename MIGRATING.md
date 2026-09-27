@@ -177,7 +177,24 @@ in the consuming application.
 Replace `Callbacks.showNotification(title, message)` with
 `Callbacks.onIncomingMessage(AprsEvent event)`. This receives an immutable value for each
 new message addressed to the local callsign, not duplicate receptions. The app
-chooses notification text and presentation. RF acknowledgements remain unchanged.
+chooses notification text and presentation.
+
+## Controller-owned RF protocol operations
+
+`Callbacks.getCallsign()`, `sendAcknowledgement(...)`, `retryMessage(...)`, and
+`transmitDigipeatedPacket(...)` are removed. Configure identity and the envelope for
+controller-generated RF packets with `setCallsign(...)`, `setTxDestination(...)`, and
+`setTxPath(...)`. A blank callsign or missing destination disables automatic ACK generation;
+the library never supplies a vendor tocall default.
+
+Implement `submitRf(APRSPacket)` instead. It receives the concrete ACK, retry, or digipeated
+packet selected by the controller and returns a `Transmission` only when the local TNC/radio
+accepted it. It must not infer the packet's protocol purpose. A successful result is not RF
+delivery; matching APRS ACK packets still establish reliable-message delivery.
+
+Replace `gateToAprsIs(tnc2, eventId)` with `submitAprsIs(tnc2, onSuccess)`. Queue the supplied
+line, then run `onSuccess` only after APRS-IS socket submission succeeds. Do not record it merely
+because it was accepted into an application queue.
 
 Enable controller scheduling with
 `setPositionBeaconingEnabled(true, nowMs, intervalMs)`, using a positive interval.
