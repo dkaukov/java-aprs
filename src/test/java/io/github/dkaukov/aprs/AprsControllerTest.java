@@ -81,6 +81,16 @@ public class AprsControllerTest {
         assertEquals(1, f.packets.records.size());
     }
 
+    @Test public void incomingMessageCallbacksRunAfterRepositoryTransaction() {
+        Fixture f = fixture();
+        APRSPacket packet = directMessage("VK3ABC", "VK3ME", "hello", "A7");
+
+        f.controller.handle(packet, AprsSource.RX_RF, 144_390_000L, packet.toAX25Frame());
+
+        assertFalse(f.callbacks.incomingMessageDuringTransaction);
+        assertFalse(f.callbacks.acknowledgementDuringTransaction);
+    }
+
     @Test public void rawFallbackPreservesHighWireBytes() {
         Fixture f = fixture();
         byte[] payload = {'?', (byte) 0x80, (byte) 0xff};
@@ -873,6 +883,7 @@ public class AprsControllerTest {
         FakeEventRepository events = new FakeEventRepository();
         FakeRepository repository = new FakeRepository(packets, events);
         FakeCallbacks callbacks = new FakeCallbacks();
+        callbacks.repository = repository;
         return new Fixture(repository, packets, events, callbacks,
             new AprsController(repository, callbacks, clock));
     }
@@ -1015,6 +1026,7 @@ public class AprsControllerTest {
         private final FakePacketRepository packets;
         private final FakeEventRepository events;
         int transactionCount;
+        int transactionDepth;
 
         FakeRepository(FakePacketRepository packets, FakeEventRepository events) {
             this.packets = packets;
@@ -1023,7 +1035,12 @@ public class AprsControllerTest {
 
         @Override public <T> T inTransaction(Supplier<T> operation) {
             transactionCount++;
-            return operation.get();
+            transactionDepth++;
+            try {
+                return operation.get();
+            } finally {
+                transactionDepth--;
+            }
         }
 
         @Override public long insert(AprsPacket packet) { return packets.insert(packet); }
@@ -1058,6 +1075,9 @@ public class AprsControllerTest {
         Long lastIgateEventId;
         Runnable onGetCallsign;
         boolean mutateTransmittedPacket;
+        FakeRepository repository;
+        boolean incomingMessageDuringTransaction;
+        boolean acknowledgementDuringTransaction;
         AprsController.Transmission lastTransmission;
 
         @Override public String getCallsign() {
@@ -1070,12 +1090,14 @@ public class AprsControllerTest {
         }
 
         @Override public void onIncomingMessage(AprsEvent event) {
+            incomingMessageDuringTransaction = repository.transactionDepth > 0;
             notificationCount++;
             lastIncomingMessage = event;
         }
 
         @Override public void sendAcknowledgement(String destination, String identifier,
                                                   long eventId) {
+            acknowledgementDuringTransaction = repository.transactionDepth > 0;
             acknowledgementCount++;
         }
 
