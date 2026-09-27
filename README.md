@@ -113,7 +113,7 @@ The controller constructs ACKs, retries, digipeated frames, and RF-to-APRS-IS qA
 `Callbacks.submitRf(packet, frequencyHz)` receives the concrete packet selected for submission
 and an optional RF frequency request. Retries use the initial persisted TX frequency; transport
 implementations may tune to it, decline the request, or ignore it. Return a `Transmission` only
-when the TNC/radio accepted the frame. Return an `RfTransmission` without a transmission and
+when the TNC/radio accepted the frame. Return an `AprsController.RfTransmission` without a transmission and
 with `retryAllowed=false` to cancel a reliable-message retry; otherwise a refused retry remains
 scheduled. This records submission, not on-air transmission or peer receipt. For reliable
 messages, only a matching APRS ACK establishes delivery.
@@ -128,13 +128,28 @@ The controller creates no scheduler thread. Call it periodically from the applic
 controller.tick(System.currentTimeMillis());
 ```
 
-`tick()` drives reliable-message retries and final failure handling, plus optional
-controller-managed beacon cadence. Reliable messages retry after 15, 30, 60, 120, and
+`tick()` sends controller-scheduled ACKs one second after a numbered local RF message arrives,
+drives reliable-message retries and final failure handling, and runs optional controller-managed
+beacon cadence. Reliable messages retry after 15, 30, 60, 120, and
 240 seconds, followed by a 30-second final ACK grace period. Applications may instead
 schedule position beacons themselves and call `submitPositionBeacon(beacon)`. It builds the
 packet from `BeaconData`, submits it through `submitRf`, and records accepted submissions. Its
 boolean result means the local transport accepted the beacon, not that it was transmitted on air.
 Use `recordPositionBeacon(...)` only when the application has already submitted its own packet.
+
+For a messaging-capable compressed position beacon, configure the content explicitly:
+
+```java
+BeaconData beacon = BeaconData.builder()
+    .latitude(-37.8608)
+    .longitude(144.9700)
+    .messagingCapable(true)
+    .compressed(true)
+    .build();
+```
+
+The default remains an uncompressed non-messaging position (`!`). Compressed beacons cannot use
+the uncompressed course/speed or altitude extensions.
 
 ### Digipeating and iGate
 
@@ -215,17 +230,17 @@ abstract class AndroidCallbacks implements AprsController.Callbacks {
         mainHandler.post(() -> viewModel.onIncomingMessage(event, forLocal));
     }
 
-    @Override public RfTransmission submitRf(APRSPacket packet, Long frequencyHz) {
+    @Override public AprsController.RfTransmission submitRf(APRSPacket packet, Long frequencyHz) {
         return submitToTnc(packet, frequencyHz);
     }
 
-    private RfTransmission submitToTnc(APRSPacket packet, Long requestedFrequencyHz) {
+    private AprsController.RfTransmission submitToTnc(APRSPacket packet, Long requestedFrequencyHz) {
         byte[] frame = packet.toAX25Frame();
         long frequencyHz = requestedFrequencyHz == null ? 144_390_000L : requestedFrequencyHz;
         return tnc.writeAx25(frame, frequencyHz)
-            ? RfTransmission.builder()
+            ? AprsController.RfTransmission.builder()
                 .transmission(new AprsController.Transmission(packet, frequencyHz, frame)).build()
-            : RfTransmission.builder().build();
+            : AprsController.RfTransmission.builder().build();
     }
 
     // Implement submitAprsIs(...) and getBeaconData(); protocol packet selection

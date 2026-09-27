@@ -20,8 +20,9 @@ import lombok.Data;
  *
  * <p>Latitude and longitude are required. Other boxed extension fields are optional: {@code null}
  * means do not include that APRS extension in the generated packet. Symbol values default to
- * {@code '/'} and {@code '>'} when omitted. Supplying weather produces an APRS
- * positioned-weather beacon and therefore uses {@code '_'} as its symbol code.</p>
+ * {@code '/'} and {@code '>'} when omitted. By default beacons use the non-messaging {@code !}
+ * DTI and uncompressed coordinates. Supplying weather produces an APRS positioned-weather beacon
+ * and therefore uses {@code '_'} as its symbol code.</p>
  */
 @Data
 @Builder(toBuilder = true)
@@ -32,6 +33,10 @@ public final class BeaconData {
     private final Double longitude;
     /** APRS symbol-table identifier, or {@code null} for the primary table. */
     private final Character symbolTable;
+    /** Whether to use the APRS messaging-capable position DTI ({@code =}) instead of {@code !}. */
+    private final boolean messagingCapable;
+    /** Whether to encode the position in APRS compressed form instead of uncompressed form. */
+    private final boolean compressed;
     /**
      * APRS symbol code, or {@code null} for the car symbol. Ignored for positioned-weather
      * beacons, which use {@code '_'} as required by APRS.
