@@ -135,7 +135,9 @@ Existing event references remain unchanged after updates; reload by ID for the
 latest state. On its first `tick()`, the controller loads pending reliable events
 once and keeps its own retry cache current as it inserts or updates events. Do not
 modify pending reliable events through another controller or direct repository
-access while that controller is running.
+access while that controller is running. `inTransaction(...)` is an optional boundary for
+repositories that can atomically group related event and packet writes; its default
+implementation simply runs the supplied operation.
 
 ## Callback and packet ownership
 

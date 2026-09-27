@@ -13,6 +13,8 @@
 package io.github.dkaukov.aprs;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * Persistence contract for APRS events and their physical packet records.
@@ -27,6 +29,24 @@ import java.util.List;
  * another controller or direct repository access while that controller is running.</p>
  */
 public interface AprsRepository {
+    /**
+     * Runs related repository reads and writes as one atomic unit when supported.
+     *
+     * <p>The default implementation executes {@code operation} directly, keeping this optional
+     * for simple in-memory repositories. Database-backed implementations should override this
+     * method to begin, commit, and roll back a transaction around the operation. The controller
+     * uses this boundary for related event and packet persistence, but never for application or
+     * radio callbacks.</p>
+     *
+     * @param operation repository operation to execute
+     * @param <T> result type
+     * @return result returned by {@code operation}
+     * @throws NullPointerException if {@code operation} is {@code null}
+     */
+    default <T> T inTransaction(Supplier<T> operation) {
+        return Objects.requireNonNull(operation, "operation").get();
+    }
+
     /**
      * Stores one immutable physical RX/TX packet record.
      *

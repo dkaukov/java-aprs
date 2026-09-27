@@ -38,6 +38,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
@@ -56,6 +58,7 @@ import java.util.stream.Collectors;
  * executor. Serialization is per controller, not across external repository writers.</p>
  */
 public final class AprsController {
+    private static final Logger LOG = Logger.getLogger(AprsController.class.getName());
     private static final long[] RETRY_DELAYS_MS = {15_000L, 30_000L, 60_000L, 120_000L, 240_000L};
     private static final long FINAL_ACK_GRACE_MS = 30_000L;
     private static final long EVENT_DUPLICATE_WINDOW_MS = 30_000L;
@@ -291,7 +294,7 @@ public final class AprsController {
 
     private void persistIncoming(APRSPacket frame, AprsPacket packet, ParsedEvent parsed,
                                  Transmission digipeated) {
-        AprsEvent event = persistPacket(packet, parsed);
+        AprsEvent event = repository.inTransaction(() -> persistPacket(packet, parsed));
         if (digipeated != null) {
             recordTransmissionNow(event == null ? null : event.getId(), digipeated, true);
         }
@@ -407,18 +410,21 @@ public final class AprsController {
         try {
             APRSPacket frame = Parser.parse(tnc2);
             AprsPacket packet = physicalPacket(frame, AprsSource.TX_APRS_IS, null, null, tnc2);
-            if (eventId == null) {
-                repository.insert(packet);
-            } else {
-                AprsEvent event = repository.findById(eventId);
-                if (event == null) {
+            repository.inTransaction(() -> {
+                if (eventId == null) {
                     repository.insert(packet);
                 } else {
-                    associatePacket(event, packet);
+                    AprsEvent event = repository.findById(eventId);
+                    if (event == null) {
+                        repository.insert(packet);
+                    } else {
+                        associatePacket(event, packet);
+                    }
                 }
-            }
-        } catch (Exception ignored) {
-            // The controller generated and validated this line before transmission.
+                return null;
+            });
+        } catch (Exception ex) {
+            LOG.log(Level.FINE, "Ignoring malformed transmitted APRS-IS line", ex);
         }
     }
 
@@ -428,17 +434,20 @@ public final class AprsController {
 
     private void recordTransmissionNow(Long eventId, Transmission transmission, boolean digipeated) {
         AprsPacket packet = physicalPacket(transmission.packet, AprsSource.TX_RF, transmission.frequencyHz, transmission.rawAx25);
-        if (eventId == null) {
-            repository.insert(packet);
-            return;
-        }
-        AprsEvent event = repository.findById(eventId);
-        if (event == null) {
-            repository.insert(packet);
-        } else {
-            event = event.toBuilder().digipeated(event.isDigipeated() || digipeated).build();
-            associatePacket(event, packet);
-        }
+        repository.inTransaction(() -> {
+            if (eventId == null) {
+                repository.insert(packet);
+                return null;
+            }
+            AprsEvent event = repository.findById(eventId);
+            if (event == null) {
+                repository.insert(packet);
+            } else {
+                event = event.toBuilder().digipeated(event.isDigipeated() || digipeated).build();
+                associatePacket(event, packet);
+            }
+            return null;
+        });
     }
 
     /**
@@ -481,6 +490,7 @@ public final class AprsController {
     }
 
     private void retryOrFail(AprsEvent event, long now) {
+        AprsPacket retryPacket = null;
         if (event.getTransmitAttempts() >= RETRY_DELAYS_MS.length + 1) {
             event = event.toBuilder().deliveryState(AprsEvent.DELIVERY_FAILED)
                 .nextRetryAtMs(null).build();
@@ -491,7 +501,7 @@ public final class AprsController {
             } else {
                 AprsPacket packet = physicalPacket(transmission.packet, AprsSource.TX_RF, transmission.frequencyHz, transmission.rawAx25);
                 packet = packet.toBuilder().eventId(event.getId()).build();
-                repository.insert(packet);
+                retryPacket = packet;
                 int attempts = event.getTransmitAttempts() + 1;
                 event = event.toBuilder().packetCount(event.getPacketCount() + 1)
                     .lastSeenMs(Math.max(event.getLastSeenMs(), packet.getTimestampMs()))
@@ -500,7 +510,15 @@ public final class AprsController {
                         ? now + FINAL_ACK_GRACE_MS : now + RETRY_DELAYS_MS[attempts - 1]).build();
             }
         }
-        repository.update(event);
+        final AprsEvent updatedEvent = event;
+        final AprsPacket packetToPersist = retryPacket;
+        repository.inTransaction(() -> {
+            if (packetToPersist != null) {
+                repository.insert(packetToPersist);
+            }
+            repository.update(updatedEvent);
+            return null;
+        });
         updatePendingReliableEvent(event);
     }
 
@@ -582,9 +600,14 @@ public final class AprsController {
     private void persistOutgoingEvent(AprsEvent event, APRSPacket frame, Long frequencyHz, byte[] rawAx25) {
         event = event.toBuilder().dedupKey(logicalPacketKey(frame)).build();
         AprsPacket packet = physicalPacket(frame, AprsSource.TX_RF, frequencyHz, rawAx25);
-        event = event.toBuilder().id(repository.insert(event)).build();
-        packet = packet.toBuilder().eventId(event.getId()).build();
-        repository.insert(packet);
+        final AprsEvent eventToPersist = event;
+        final AprsPacket packetToPersist = packet;
+        event = repository.inTransaction(() -> {
+            AprsEvent persistedEvent = eventToPersist.toBuilder()
+                .id(repository.insert(eventToPersist)).build();
+            repository.insert(packetToPersist.toBuilder().eventId(persistedEvent.getId()).build());
+            return persistedEvent;
+        });
         updatePendingReliableEvent(event);
     }
 
