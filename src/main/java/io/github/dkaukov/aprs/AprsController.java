@@ -752,8 +752,7 @@ public final class AprsController {
 
     private String encodeBeacon(BeaconData beacon) {
         char table = beacon.getSymbolTable() == null ? '/' : beacon.getSymbolTable();
-        char code = beacon.getWeather() == null
-            ? beacon.getSymbolCode() == null ? '>' : beacon.getSymbolCode() : '_';
+        char code = beacon.getWeather() == null ? beacon.getSymbolCode() == null ? '>' : beacon.getSymbolCode() : '_';
         Position coordinateFormatter = new Position(0D, 0D);
         StringBuilder value = new StringBuilder("!")
             .append(coordinateFormatter.getDMS(beacon.getLatitude(), true))
