@@ -60,6 +60,21 @@ public interface AprsRepository {
     }
 
     /**
+     * Updates repository-local derived state after an event and its related packet writes.
+     *
+     * <p>The controller invokes this method inside {@link #inTransaction(Supplier)}, only after
+     * the event has its final persistent ID and state for the operation. Implementations may
+     * update materialized database projections. They must not perform external side effects,
+     * submit transport work, invoke UI code, or re-enter {@link AprsController}. Throwing from
+     * this method fails the transaction and requires its writes to roll back.</p>
+     *
+     * @param event final immutable event snapshot for the operation
+     */
+    default void onEventPersisted(AprsEvent event) {
+        // Optional repository-local projection hook.
+    }
+
+    /**
      * Stores one immutable physical RX/TX packet record.
      *
      * @param packet packet record to persist

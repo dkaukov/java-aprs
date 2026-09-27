@@ -142,6 +142,12 @@ an exception: a packet insert may remain if its related event update fails. Do n
 a controller call after such a failure, because it may insert another packet or event; reconcile
 storage first or implement atomic transactions.
 
+For repository-local materialized state, such as a database feed projection, override
+`onEventPersisted(AprsEvent)`. The controller invokes it inside `inTransaction(...)` after the
+event has its final ID/state and related packet writes are complete. Use it only for database
+work that must commit atomically with the event. Do not submit transport work, update UI, or
+re-enter the controller from this hook; an exception rolls back the repository transaction.
+
 ## Callback and packet ownership
 
 `handle()` snapshots the input packet and raw AX.25 bytes before invoking any
