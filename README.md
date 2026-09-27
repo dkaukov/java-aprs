@@ -104,8 +104,9 @@ implementation.
 Callbacks describe operations the application performs: obtaining the local callsign,
 handling a newly created addressed message, transmitting ACKs/retries/digipeats, making
 position beacons, and forwarding an accepted iGate line. A retry or digipeat callback
-returns a `Transmission` only when it actually transmitted; `null` means no
-transmission occurred.
+returns a `Transmission` only when the TNC/radio transport accepted the frame; `null` means it
+did not. This records submission, not an on-air transmission or peer receipt. For reliable
+messages, only a matching APRS ACK establishes delivery.
 
 ### Reliable messages and `tick()`
 
@@ -119,7 +120,7 @@ controller.tick(System.currentTimeMillis());
 controller-managed beacon cadence. Reliable messages retry after 15, 30, 60, 120, and
 240 seconds, followed by a 30-second final ACK grace period. Applications may instead
 schedule position beacons themselves and call `recordPositionBeacon(...)` after a real
-transmission.
+transport submission.
 
 ### Digipeating and iGate
 
@@ -171,6 +172,59 @@ for background processing; producer arrival order is the application's responsib
 `AprsEvent` and `AprsPacket` are immutable, and `AprsPacket.rawAx25` is defensively
 copied. Parser APIs return detached/deep snapshots where documented. `Transmission`
 also snapshots its parser packet and raw-frame inputs.
+
+## Android integration
+
+Keep all controller calls on one application-owned worker. Dispatch only UI projection to the
+main thread; do not move controller calls or its synchronous callbacks there. This abbreviated
+adapter uses application-defined `tnc` and `viewModel` objects:
+
+```java
+ExecutorService aprsWorker = Executors.newSingleThreadExecutor();
+Handler mainHandler = new Handler(Looper.getMainLooper());
+
+// Radio ingress may come from any thread. Snapshot first, then preserve arrival order.
+void onAx25Frame(byte[] frame) {
+    byte[] snapshot = frame.clone();
+    aprsWorker.execute(() -> {
+        try {
+            APRSPacket packet = Parser.parseAX25(snapshot);
+            controller.handle(packet, AprsSource.RX_RF, 144_390_000L, snapshot);
+        } catch (Exception e) {
+            Log.w("Aprs", "Ignoring malformed AX.25 frame", e);
+        }
+    });
+}
+
+abstract class AndroidCallbacks implements AprsController.Callbacks {
+    @Override public void onIncomingMessage(AprsEvent event) {
+        mainHandler.post(() -> viewModel.onIncomingMessage(event));
+    }
+
+    @Override public AprsController.Transmission retryMessage(AprsEvent event) {
+        return submitToTnc(buildRetryPacket(event));
+    }
+
+    @Override public AprsController.Transmission transmitDigipeatedPacket(APRSPacket packet) {
+        return submitToTnc(packet);
+    }
+
+    private AprsController.Transmission submitToTnc(APRSPacket packet) {
+        byte[] frame = packet.toAX25Frame();
+        return tnc.writeAx25(frame, 144_390_000L)
+            ? new AprsController.Transmission(packet, 144_390_000L, frame)
+            : null;
+    }
+
+    // Implement getCallsign(), sendAcknowledgement(), requestPositionBeacon(), and
+    // gateToAprsIs() for the application; their transport work also runs synchronously here.
+}
+```
+
+`tnc.writeAx25(...)` is an application method: it should return only after the local TNC/radio
+transport accepts or rejects the frame. Do not enqueue work back onto `aprsWorker` from a
+transmission callback. A successful `Transmission` does not confirm on-air RF transmission or
+delivery. Schedule `controller.tick(now)` by submitting it to the same worker.
 
 ## Scope
 

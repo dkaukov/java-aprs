@@ -18,7 +18,7 @@ public final class AprsSource {
     public static final String UNKNOWN = "UNKNOWN";
     /** Packet was received from RF. */
     public static final String RX_RF = "RX_RF";
-    /** Packet was transmitted on RF. */
+    /** Packet was accepted by a TNC/radio transport for RF submission. */
     public static final String TX_RF = "TX_RF";
     /** Packet was received from APRS-IS. */
     public static final String RX_APRS_IS = "RX_APRS_IS";
