@@ -29,16 +29,21 @@ public class OwnershipTest {
         packet.setComment("original");
         byte[] raw = packet.toAX25Frame();
         byte[] expected = raw.clone();
-        AprsController.Transmission transmission = new AprsController.Transmission(packet, 144_390_000L, raw);
+        AprsController.Transmission transmission = AprsController.Transmission.builder()
+                .packet(packet)
+                .frequencyHz(144_390_000L)
+                .rawAx25(raw)
+                .build();
         packet.addDigipeater(new Digipeater("OTHER"));
         packet.setComment("changed");
         raw[0] ^= 1;
         transmission.getPacket().addDigipeater(new Digipeater("ANOTHER"));
+        assertNotNull(transmission.getRawAx25());
         transmission.getRawAx25()[0] ^= 1;
         assertEquals(1, transmission.getPacket().getDigipeaters().size());
         assertEquals("original", transmission.getPacket().getComment());
         assertArrayEquals(expected, transmission.getRawAx25());
-        assertNull(new AprsController.Transmission(packet, null, null).getRawAx25());
+        assertNull(AprsController.Transmission.builder().packet(packet).build().getRawAx25());
     }
 
     @Test public void eventBuilderReuseDoesNotModifyBuiltEvents() {

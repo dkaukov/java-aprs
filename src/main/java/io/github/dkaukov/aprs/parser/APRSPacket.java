@@ -59,7 +59,7 @@ public final class APRSPacket implements Serializable {
         receivedTimestamp = new Date(source.receivedTimestamp.getTime());
         originalString = source.originalString;
         digipeaters = source.digipeaters.stream().map(Digipeater::copy)
-            .collect(Collectors.toCollection(ArrayList::new));
+                .collect(Collectors.toCollection(ArrayList::new));
         sourceCall = source.sourceCall;
         destinationCall = source.destinationCall;
         dti = source.dti;
@@ -71,7 +71,6 @@ public final class APRSPacket implements Serializable {
     public APRSPacket copy() {
         return new APRSPacket(this);
     }
-
 
     public static final Set<String> Q_CONSTRUCTS = Collections.unmodifiableSet(new HashSet<>(
         Arrays.asList("qac", "qax", "qau", "qao", "qas", "qar", "qaz", "qai")));

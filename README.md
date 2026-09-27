@@ -110,11 +110,15 @@ controller.setTxPath(Collections.singletonList(new Digipeater("WIDE1-1")));
 ```
 
 The controller constructs ACKs, retries, digipeated frames, and RF-to-APRS-IS qAO lines.
-`Callbacks.submitRf(packet)` receives only the concrete packet selected for submission; it
-returns a `Transmission` only when the TNC/radio transport accepted the frame. This records
-submission, not on-air transmission or peer receipt. For reliable messages, only a matching
-APRS ACK establishes delivery. `submitAprsIs(line, onSuccess)` must invoke `onSuccess` only
-after successful socket submission so the controller can record TX_APRS_IS history.
+`Callbacks.submitRf(packet, frequencyHz)` receives the concrete packet selected for submission
+and an optional RF frequency request. Retries use the initial persisted TX frequency; transport
+implementations may tune to it, decline the request, or ignore it. Return a `Transmission` only
+when the TNC/radio accepted the frame. Return an `RfTransmission` without a transmission and
+with `retryAllowed=false` to cancel a reliable-message retry; otherwise a refused retry remains
+scheduled. This records submission, not on-air transmission or peer receipt. For reliable
+messages, only a matching APRS ACK establishes delivery.
+`submitAprsIs(line, onSuccess)` must invoke `onSuccess` only after successful socket submission
+so the controller can record TX_APRS_IS history.
 
 ### Reliable messages and `tick()`
 
@@ -211,15 +215,17 @@ abstract class AndroidCallbacks implements AprsController.Callbacks {
         mainHandler.post(() -> viewModel.onIncomingMessage(event, forLocal));
     }
 
-    @Override public AprsController.Transmission submitRf(APRSPacket packet) {
-        return submitToTnc(packet);
+    @Override public RfTransmission submitRf(APRSPacket packet, Long frequencyHz) {
+        return submitToTnc(packet, frequencyHz);
     }
 
-    private AprsController.Transmission submitToTnc(APRSPacket packet) {
+    private RfTransmission submitToTnc(APRSPacket packet, Long requestedFrequencyHz) {
         byte[] frame = packet.toAX25Frame();
-        return tnc.writeAx25(frame, 144_390_000L)
-            ? new AprsController.Transmission(packet, 144_390_000L, frame)
-            : null;
+        long frequencyHz = requestedFrequencyHz == null ? 144_390_000L : requestedFrequencyHz;
+        return tnc.writeAx25(frame, frequencyHz)
+            ? RfTransmission.builder()
+                .transmission(new AprsController.Transmission(packet, frequencyHz, frame)).build()
+            : RfTransmission.builder().build();
     }
 
     // Implement submitAprsIs(...) and getBeaconData(); protocol packet selection

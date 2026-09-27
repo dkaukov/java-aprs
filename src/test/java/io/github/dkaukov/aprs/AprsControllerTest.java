@@ -57,6 +57,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+
+import org.junit.Assert;
 import org.junit.Test;
 
 public class AprsControllerTest {
@@ -150,6 +152,7 @@ public class AprsControllerTest {
         assertEquals(Long.valueOf(f.events.records.get(0).getId()),
             f.packets.records.get(1).getEventId());
         assertEquals(1, f.events.records.get(0).getPacketCount());
+        assertEquals(Long.valueOf(144_390_000L), f.callbacks.lastRequestedFrequencyHz);
     }
 
     @Test public void missingIdentityOrDestinationSkipsAutomaticAcknowledgementAndIgate() {
@@ -198,7 +201,7 @@ public class AprsControllerTest {
     @Test public void retryAfterRestartUsesPersistedInitialRfFrame() {
         Fixture f = fixture();
         APRSPacket original = outgoingMessage("VK3ME", "VK3ABC", "hello", "7");
-        f.controller.recordOutgoingMessage("VK3ME", "VK3ABC", "hello", "7", null,
+        f.controller.recordOutgoingMessage("VK3ME", "VK3ABC", "hello", "7", 144_390_000L,
             original, null);
         long retryAt = f.events.records.get(0).getNextRetryAtMs();
         FakeCallbacks restartedCallbacks = new FakeCallbacks();
@@ -209,6 +212,7 @@ public class AprsControllerTest {
         restarted.tick(retryAt);
 
         assertEquals(1, restartedCallbacks.retryCount);
+        assertEquals(Long.valueOf(144_390_000L), restartedCallbacks.lastRequestedFrequencyHz);
         assertArrayEquals(original.toAX25Frame(),
             restartedCallbacks.lastTransmission.getRawAx25());
     }
@@ -683,6 +687,23 @@ public class AprsControllerTest {
         assertEquals(Long.valueOf(15_100L), event.getNextRetryAtMs());
     }
 
+    @Test public void cancelledRfRetryFailsReliableMessageWithoutAddingPacket() {
+        Fixture f = fixture();
+        f.callbacks.retrySucceeds = false;
+        f.callbacks.cancelRetry = true;
+        AprsEvent event = pendingEvent("VK3ABC", "7", 100L, 1);
+        event = event.toBuilder().id(1).build();
+        f.events.records.add(event);
+
+        f.controller.tick(100L);
+
+        event = f.events.findById(event.getId());
+        assertEquals(AprsEvent.DELIVERY_FAILED, event.getDeliveryState());
+        assertNull(event.getNextRetryAtMs());
+        assertEquals(1, event.getTransmitAttempts());
+        assertTrue(f.packets.records.isEmpty());
+    }
+
     @Test public void restartRetriesOnlyPersistedPendingEvents() {
         FakePacketRepository packets = new FakePacketRepository();
         FakeEventRepository events = new FakeEventRepository();
@@ -790,6 +811,7 @@ public class AprsControllerTest {
 
         assertTrue(f.controller.submitPositionBeacon(beacon));
         assertEquals(1, f.packets.records.size());
+        assertNull(f.callbacks.lastRequestedFrequencyHz);
         f.callbacks.retrySucceeds = false;
         assertFalse(f.controller.submitPositionBeacon(beacon));
         assertEquals(1, f.packets.records.size());
@@ -890,6 +912,7 @@ public class AprsControllerTest {
 
         assertEquals(1, f.callbacks.digipeatCount);
         assertEquals("VK3ME-9*", f.callbacks.lastDigipeatedPacket.getDigipeaters().get(0).toString());
+        assertEquals(Long.valueOf(144_390_000L), f.callbacks.lastRequestedFrequencyHz);
     }
 
     @Test public void fillInDigipeaterRejectsWideOneTwo() {
@@ -1004,6 +1027,7 @@ public class AprsControllerTest {
         f.controller.tick(0L);
 
         f.callbacks.lastTransmission.getPacket().addDigipeater(new Digipeater("LATER"));
+        Assert.assertNotNull(f.callbacks.lastTransmission.getRawAx25());
         f.callbacks.lastTransmission.getRawAx25()[0] ^= 1;
         assertEquals("WIDE1-1", f.packets.records.get(0).getPath());
         assertArrayEquals(f.callbacks.lastTransmission.getRawAx25(), f.packets.records.get(0).getRawAx25());
@@ -1344,6 +1368,7 @@ public class AprsControllerTest {
         int acknowledgementCount;
         int igateCount;
         boolean retrySucceeds = true;
+        boolean cancelRetry;
         boolean digipeatSucceeds = true;
         APRSPacket lastDigipeatedPacket;
         String lastIgateLine;
@@ -1356,6 +1381,7 @@ public class AprsControllerTest {
         boolean incomingMessageDuringTransaction;
         boolean acknowledgementDuringTransaction;
         AprsController.Transmission lastTransmission;
+        Long lastRequestedFrequencyHz;
 
         @Override public void onIncomingMessage(AprsEvent event, boolean forLocal) {
             incomingMessageDuringTransaction = repository.transactionDepth > 0;
@@ -1364,23 +1390,25 @@ public class AprsControllerTest {
             lastIncomingMessageForLocal = forLocal;
         }
 
-        @Override public AprsController.Transmission submitRf(APRSPacket packet) {
+        @Override public AprsController.RfTransmission submitRf(APRSPacket packet, Long frequencyHz) {
             String payload = new String(packet.getPayload().getRawBytes(), StandardCharsets.ISO_8859_1);
+            lastRequestedFrequencyHz = frequencyHz;
             acknowledgementDuringTransaction = repository != null && repository.transactionDepth > 0;
             if (payload.contains(":ack")) {
                 acknowledgementCount++;
-                return transmission(packet);
+                return accepted(packet);
             }
             if ("VK3ME".equals(packet.getSourceCall())) {
                 retryCount++;
-                return retrySucceeds ? transmission(packet) : null;
+                return retrySucceeds ? accepted(packet)
+                    : AprsController.RfTransmission.builder().retryAllowed(!cancelRetry).build();
             }
             digipeatCount++;
             if (!digipeatSucceeds) {
                 return null;
             }
             lastDigipeatedPacket = packet;
-            return transmission(packet);
+            return accepted(packet);
         }
 
         @Override public BeaconData getBeaconData() {
@@ -1390,12 +1418,20 @@ public class AprsControllerTest {
 
         private AprsController.Transmission transmission(APRSPacket packet) {
             byte[] raw = packet.toAX25Frame();
-            lastTransmission = new AprsController.Transmission(packet, 144_390_000L, raw);
+            lastTransmission =  AprsController.Transmission.builder()
+                    .packet(packet)
+                    .rawAx25(raw)
+                    .frequencyHz(144_390_000L)
+                    .build();
             if (mutateTransmittedPacket) {
                 packet.addDigipeater(new Digipeater("CHANGED"));
                 raw[0] ^= 1;
             }
             return lastTransmission;
+        }
+
+        private AprsController.RfTransmission accepted(APRSPacket packet) {
+            return AprsController.RfTransmission.builder().transmission(transmission(packet)).build();
         }
 
         @Override public boolean submitAprsIs(String tnc2, Runnable onSuccess) {

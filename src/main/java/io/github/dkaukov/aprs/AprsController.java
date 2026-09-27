@@ -12,6 +12,7 @@
 
 package io.github.dkaukov.aprs;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.dkaukov.aprs.parser.APRSPacket;
 import io.github.dkaukov.aprs.parser.APRSTypes;
 import io.github.dkaukov.aprs.parser.Digipeater;
@@ -26,6 +27,10 @@ import io.github.dkaukov.aprs.parser.StatusField;
 import io.github.dkaukov.aprs.parser.ThirdPartyField;
 import io.github.dkaukov.aprs.parser.Utilities;
 import io.github.dkaukov.aprs.parser.WeatherField;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
 import lombok.Getter;
 
 import java.nio.charset.StandardCharsets;
@@ -76,26 +81,15 @@ public final class AprsController {
      * matching APRS ACK establishes delivery; callbacks return {@code null} when submission did
      * not occur.</p>
      */
+    @Data
+    @Builder
+    @AllArgsConstructor(access = AccessLevel.PRIVATE)
+    @SuppressFBWarnings("RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE")
     public static final class Transmission {
         private final APRSPacket packet;
         /** RF frequency in Hz, or {@code null} when it was not available. */
         public final Long frequencyHz;
         private final byte[] rawAx25;
-
-        /**
-         * Creates a transport-submission result from snapshots of a parsed packet and its frame.
-         *
-         * @param packet parser packet accepted by the transport; must not be {@code null}
-         * @param frequencyHz RF frequency in Hz, or {@code null}
-         * @param rawAx25 accepted AX.25 UI frame without FCS, flags, or KISS framing
-         * @throws NullPointerException if {@code packet} is {@code null}
-         */
-        public Transmission(APRSPacket packet, Long frequencyHz, byte[] rawAx25) {
-            this.packet = Objects.requireNonNull(packet, "packet").copy();
-            this.frequencyHz = frequencyHz;
-            this.rawAx25 = rawAx25 == null ? null : Arrays.copyOf(rawAx25, rawAx25.length);
-        }
-
         /**
          * Returns an independent parser-packet snapshot.
          *
@@ -104,7 +98,6 @@ public final class AprsController {
         public APRSPacket getPacket() {
             return packet.copy();
         }
-
         /**
          * Returns an independent encoded-frame snapshot.
          *
@@ -113,6 +106,34 @@ public final class AprsController {
         public byte[] getRawAx25() {
             return rawAx25 == null ? null : Arrays.copyOf(rawAx25, rawAx25.length);
         }
+
+        public static class TransmissionBuilder {
+            public TransmissionBuilder rawAx25(final byte[] rawAx25) {
+                this.rawAx25 = rawAx25 == null ? null : Arrays.copyOf(rawAx25, rawAx25.length);
+                return this;
+            }
+            public TransmissionBuilder packet(final APRSPacket packet) {
+                this.packet = Objects.requireNonNull(packet, "packet").copy();
+                return this;
+            }
+        }
+    }
+
+    /**
+     * Immutable result of requesting local RF transport submission.
+     *
+     * <p>A non-null transmission means the transport accepted a frame. With no transmission,
+     * {@code retryAllowed} distinguishes a temporary refusal from a terminal cancellation of a
+     * reliable-message retry. The controller records TX history only for accepted transmissions.</p>
+     */
+    @Data
+    @Builder(toBuilder = true)
+    public static final class RfTransmission {
+        /** Actual accepted transport submission, or {@code null} when no frame was accepted. */
+        private final Transmission transmission;
+        /** Whether a reliable-message retry should remain scheduled when no frame was accepted. */
+        @Builder.Default
+        private final boolean retryAllowed = true;
     }
 
     /**
@@ -138,13 +159,16 @@ public final class AprsController {
         /**
          * Submits the exact APRS packet selected by the controller to local RF transport.
          *
-         * <p>A non-null result means only that the local TNC/radio transport accepted the frame;
-         * it does not confirm on-air transmission or peer receipt.</p>
+         * <p>A result with a non-null transmission means only that the local TNC/radio transport
+         * accepted the frame; it does not confirm on-air transmission or peer receipt. A result
+         * without a transmission may allow a later reliable-message retry or cancel it.</p>
          *
          * @param packet controller-selected packet snapshot
-         * @return submission snapshot, or {@code null} when the transport did not accept it
+         * @param frequencyHz requested RF frequency in Hz, or {@code null} when unspecified
+         * @return accepted, retry-later, or terminal-cancellation outcome; {@code null} is
+         *         treated as a retry-later outcome
          */
-        Transmission submitRf(APRSPacket packet);
+        RfTransmission submitRf(APRSPacket packet, Long frequencyHz);
         /** Returns current application-owned location/content, or {@code null} to skip a beacon. */
         BeaconData getBeaconData();
         /**
@@ -313,7 +337,7 @@ public final class AprsController {
         if (receivedFromRf && isRecentlyDigipeated(packet)) {
             return;
         }
-        Transmission digipeated = receivedFromRf ? maybeDigipeat(packet) : null;
+        Transmission digipeated = receivedFromRf ? maybeDigipeat(packet, frequencyHz) : null;
         AprsPacket packetRecord = physicalPacket(packet, source, frequencyHz, rawAx25, rawTnc2);
         PacketContext context = unwrap(packet);
         ParsedEvent parsed = context == null ? null : parseEvent(context);
@@ -332,7 +356,7 @@ public final class AprsController {
             updatePendingReliableEvent(event);
         }
         if (event != null && event.getType() == AprsEvent.MESSAGE_TYPE) {
-            notifyAndAcknowledge(event, persisted.created, packet.getSource());
+            notifyAndAcknowledge(event, persisted.created, packet.getSource(), packet.getFrequencyHz());
         }
         if (digipeated != null) {
             recordTransmissionNow(event == null ? null : event.getId(), digipeated, true);
@@ -410,7 +434,8 @@ public final class AprsController {
         return event;
     }
 
-    private void notifyAndAcknowledge(AprsEvent event, boolean notifyUser, String source) {
+    private void notifyAndAcknowledge(AprsEvent event, boolean notifyUser, String source,
+                                      Long frequencyHz) {
         boolean forLocal = !callsign.isEmpty() && event.getToCallsign() != null
             && normalizeAx25Address(event.getToCallsign()).equals(normalizeAx25Address(callsign));
         if (notifyUser) {
@@ -421,20 +446,20 @@ public final class AprsController {
         }
         if (AprsSource.RX_RF.equals(source) && event.getMessageIdentifier() != null
             && !event.getMessageIdentifier().trim().isEmpty()) {
-            submitAcknowledgement(event);
+            submitAcknowledgement(event, frequencyHz);
         }
     }
 
-    private void submitAcknowledgement(AprsEvent event) {
+    private void submitAcknowledgement(AprsEvent event, Long frequencyHz) {
         if (txDestination.isEmpty()) {
             LOG.fine("Skipping APRS acknowledgement because no TX destination is configured");
             return;
         }
         APRSPacket acknowledgement = new APRSPacket(callsign, txDestination, txPath,
             MessagePacket.createMessagePayload(event.getFromCallsign(), "ack" + event.getMessageIdentifier(), null));
-        Transmission transmission = callbacks.submitRf(acknowledgement.copy());
-        if (transmission != null) {
-            recordTransmissionNow(event.getId(), transmission, false, false);
+        RfTransmission submission = callbacks.submitRf(acknowledgement.copy(), frequencyHz);
+        if (submission != null && submission.getTransmission() != null) {
+            recordTransmissionNow(event.getId(), submission.getTransmission(), false, false);
         }
     }
 
@@ -569,14 +594,19 @@ public final class AprsController {
             event = event.toBuilder().deliveryState(AprsEvent.DELIVERY_FAILED)
                 .nextRetryAtMs(null).build();
         } else {
-            APRSPacket original = loadRetryPacket(event);
+            RetryFrame original = loadRetryPacket(event);
             if (original == null) {
                 event = event.toBuilder().deliveryState(AprsEvent.DELIVERY_FAILED)
                     .nextRetryAtMs(null).build();
             } else {
-                Transmission transmission = callbacks.submitRf(original.copy());
+                RfTransmission submission = callbacks.submitRf(original.packet.copy(),
+                    original.frequencyHz);
+                Transmission transmission = submission == null ? null : submission.getTransmission();
                 if (transmission == null) {
-                    event = event.toBuilder().nextRetryAtMs(now + RETRY_DELAYS_MS[0]).build();
+                    event = submission != null && !submission.isRetryAllowed()
+                        ? event.toBuilder().deliveryState(AprsEvent.DELIVERY_FAILED)
+                            .nextRetryAtMs(null).build()
+                        : event.toBuilder().nextRetryAtMs(now + RETRY_DELAYS_MS[0]).build();
                 } else {
                     AprsPacket packet = physicalPacket(transmission.packet, AprsSource.TX_RF,
                         transmission.frequencyHz, transmission.rawAx25);
@@ -604,14 +634,14 @@ public final class AprsController {
         updatePendingReliableEvent(event);
     }
 
-    private APRSPacket loadRetryPacket(AprsEvent event) {
+    private RetryFrame loadRetryPacket(AprsEvent event) {
         AprsPacket original = repository.findInitialRfTransmission(event.getId());
         if (original == null || original.getRawAx25() == null) {
             LOG.warning("Failing reliable message because its initial RF frame is unavailable");
             return null;
         }
         try {
-            return Parser.parseAX25(original.getRawAx25());
+            return new RetryFrame(Parser.parseAX25(original.getRawAx25()), original.getFrequencyHz());
         } catch (Exception ex) {
             LOG.log(Level.WARNING, "Failing reliable message because its initial RF frame is invalid", ex);
             return null;
@@ -741,10 +771,11 @@ public final class AprsController {
             return false;
         }
         APRSPacket packet = new APRSPacket(callsign, txDestination, txPath, encodeBeacon(beacon).getBytes(StandardCharsets.US_ASCII));
-        Transmission transmission = callbacks.submitRf(packet.copy());
-        if (transmission == null) {
+        RfTransmission submission = callbacks.submitRf(packet.copy(), null);
+        if (submission == null || submission.getTransmission() == null) {
             return false;
         }
+        Transmission transmission = submission.getTransmission();
         recordPositionBeacon(callsign, beacon.getLatitude(), beacon.getLongitude(),
             transmission.frequencyHz, transmission.packet, transmission.rawAx25);
         return true;
@@ -1041,7 +1072,7 @@ public final class AprsController {
         return callsign == null ? "" : callsign.trim().toUpperCase(Locale.ROOT);
     }
 
-    private Transmission maybeDigipeat(APRSPacket packet) {
+    private Transmission maybeDigipeat(APRSPacket packet, Long frequencyHz) {
         String localCallsign = callsign;
         if (!digipeatingEnabled || localCallsign.isEmpty()
             || packet == null || packet.getPayload() == null || packet.hasFault()) {
@@ -1078,7 +1109,8 @@ public final class AprsController {
         }
         APRSPacket retransmit = new APRSPacket(packet.getSourceCall(), packet.getDestinationCall(), replacement, packet.getPayload().getRawBytes());
         retransmit.setComment(packet.getComment());
-        Transmission transmission = callbacks.submitRf(retransmit.copy());
+        RfTransmission submission = callbacks.submitRf(retransmit.copy(), frequencyHz);
+        Transmission transmission = submission == null ? null : submission.getTransmission();
         if (transmission != null) {
             digipeatInputCache.put(key, now);
             digipeatOutputCache.put(digipeatOutputKey(retransmit), now);
@@ -1229,6 +1261,17 @@ public final class AprsController {
             this.packet = packet;
             this.info = info;
             this.relayCallsign = relayCallsign;
+        }
+    }
+
+    /** Parsed retry packet together with the original TX frequency request. */
+    private static final class RetryFrame {
+        private final APRSPacket packet;
+        private final Long frequencyHz;
+
+        private RetryFrame(APRSPacket packet, Long frequencyHz) {
+            this.packet = packet;
+            this.frequencyHz = frequencyHz;
         }
     }
 
