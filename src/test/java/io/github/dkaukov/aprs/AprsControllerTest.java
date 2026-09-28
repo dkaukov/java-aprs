@@ -961,6 +961,7 @@ public class AprsControllerTest {
 
         String payload = new String(f.callbacks.lastTransmission.getPacket().getPayload().getRawBytes(),
             StandardCharsets.ISO_8859_1);
+        assertEquals(1, f.callbacks.igateCount);
         assertEquals("VK3ME>APRS,TCPIP*:" + payload, f.callbacks.lastIgateLine);
         assertEquals(1, f.packets.records.size());
 
