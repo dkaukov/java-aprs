@@ -689,6 +689,7 @@ public class AprsControllerTest {
 
     @Test public void outgoingPositionCreatesEventAndPacket() {
         Fixture f = fixture();
+        f.controller.setIgateEnabled(true);
         APRSPacket frame = new APRSPacket("VK3ME", "DST",
             Collections.singletonList(new Digipeater("WIDE1-1")),
             "!3751.65S/14458.20E-Test".getBytes(StandardCharsets.US_ASCII));
@@ -699,6 +700,7 @@ public class AprsControllerTest {
         assertEquals(1, f.events.records.size());
         assertEquals(AprsEvent.POSITION_TYPE, f.events.records.get(0).getType());
         assertEquals(1, f.packets.records.size());
+        assertEquals(0, f.callbacks.igateCount);
     }
 
     @Test public void digipeatedEchoAttachesToOutgoingPositionEvent() throws Exception {
@@ -948,6 +950,26 @@ public class AprsControllerTest {
         f.callbacks.retrySucceeds = false;
         assertFalse(f.controller.submitPositionBeacon(beacon));
         assertEquals(1, f.packets.records.size());
+    }
+
+    @Test public void submitPositionBeaconBestEffortSubmitsLocalInternetCopyWithTcpip() {
+        Fixture f = fixture();
+        f.controller.setIgateEnabled(true);
+        BeaconData beacon = BeaconData.builder().latitude(-37D).longitude(144D).build();
+
+        assertTrue(f.controller.submitPositionBeacon(beacon));
+
+        String payload = new String(f.callbacks.lastTransmission.getPacket().getPayload().getRawBytes(),
+            StandardCharsets.ISO_8859_1);
+        assertEquals(1, f.callbacks.igateCount);
+        assertEquals("VK3ME>APRS,TCPIP*:" + payload, f.callbacks.lastIgateLine);
+        assertEquals(1, f.packets.records.size());
+
+        f.callbacks.lastIgateSuccess.run();
+        assertEquals(2, f.packets.records.size());
+        AprsPacket internetCopy = f.packets.records.get(1);
+        assertEquals(AprsSource.TX_APRS_IS, internetCopy.getSource());
+        assertEquals(Long.valueOf(f.events.records.get(0).getId()), internetCopy.getEventId());
     }
 
     @Test public void invalidBeaconValuesAreNotSubmitted() {
