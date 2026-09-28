@@ -257,10 +257,15 @@ public final class AprsController {
     }
 
     /**
-     * Enables or disables standards-filtered, one-way forwarding from RF to APRS-IS.
+     * Enables or disables APRS-IS submission for eligible received RF packets and locally
+     * originated {@link #postMessage(String, String, Long)} packets.
+     *
+     * <p>Eligible received RF packets are forwarded with the standards-filtered qAO construct.
+     * An accepted local message is independently submitted with a {@code TCPIP*} path. Disabling
+     * this setting leaves RF processing and RF message submission unchanged.</p>
      *
      * @param enabled {@code true} to invoke {@link Callbacks#submitAprsIs(String, Runnable)} for
-     *                eligible RF packets
+     *                eligible RF and local message packets
      */
     public synchronized void setIgateEnabled(boolean enabled) {
         igateEnabled = enabled;
@@ -736,6 +741,12 @@ public final class AprsController {
      */
     public synchronized void recordOutgoingMessage(String from, String to, String text, String messageIdentifier,
                                       Long frequencyHz, APRSPacket packet, byte[] rawAx25) {
+        recordOutgoingMessageNow(from, to, text, messageIdentifier, frequencyHz, packet, rawAx25);
+    }
+
+    private AprsEvent recordOutgoingMessageNow(String from, String to, String text,
+                                               String messageIdentifier, Long frequencyHz,
+                                               APRSPacket packet, byte[] rawAx25) {
         long now = clock.millis();
         AprsEvent.AprsEventBuilder event = AprsEvent.builder();
         event.type(AprsEvent.MESSAGE_TYPE);
@@ -751,7 +762,7 @@ public final class AprsController {
             event.transmitAttempts(1);
             event.nextRetryAtMs(now + RETRY_DELAYS_MS[0]);
         }
-        persistOutgoingEvent(event.build(), packet, frequencyHz, rawAx25);
+        return persistOutgoingEvent(event.build(), packet, frequencyHz, rawAx25);
     }
 
     /**
@@ -763,6 +774,11 @@ public final class AprsController {
      * submitted with {@link RfTransmissionPurpose#BROADCAST}, and are recorded without retries.
      * A {@code false} result means the controller configuration or arguments were insufficient,
      * or the local transport did not accept the frame.</p>
+     *
+     * <p>When iGating is enabled, after an accepted RF submission the controller also makes a
+     * best-effort asynchronous APRS-IS submission with a {@code TCPIP*} path. APRS-IS queue
+     * rejection or failure does not change this method's result; TX_APRS_IS history is recorded
+     * only after socket submission succeeds.</p>
      *
      * @param to message destination callsign or broadcast address
      * @param text message body; it is trimmed and limited to APRS message-field capacity
@@ -784,7 +800,11 @@ public final class AprsController {
             return false;
         }
         Transmission transmission = submission.getTransmission();
-        recordOutgoingMessage(callsign, destination, encodedMessage.getMessageBody(), identifier, transmission.frequencyHz, transmission.packet, transmission.rawAx25);
+        AprsEvent event = recordOutgoingMessageNow(callsign, destination, encodedMessage.getMessageBody(),
+            identifier, transmission.frequencyHz, transmission.packet, transmission.rawAx25);
+        if (igateEnabled) {
+            submitLocalToAprsIs(transmission.packet, event.getId());
+        }
         return true;
     }
 
@@ -851,7 +871,7 @@ public final class AprsController {
             .build();
     }
 
-    private void persistOutgoingEvent(AprsEvent event, APRSPacket frame, Long frequencyHz, byte[] rawAx25) {
+    private AprsEvent persistOutgoingEvent(AprsEvent event, APRSPacket frame, Long frequencyHz, byte[] rawAx25) {
         event = event.toBuilder().dedupKey(logicalPacketKey(frame)).build();
         AprsPacket packet = physicalPacket(frame, AprsSource.TX_RF, frequencyHz,
             rawAx25 == null ? frame.toAX25Frame() : rawAx25);
@@ -865,6 +885,7 @@ public final class AprsController {
             return persistedEvent;
         });
         updatePendingReliableEvent(event);
+        return event;
     }
 
     /**
@@ -1302,6 +1323,41 @@ public final class AprsController {
                 callbacks.submitAprsIs(gated, () -> recordAprsIsTransmission(eventId, gated));
             }
         }
+    }
+
+    /**
+     * Best-effort APRS-IS submission for a locally originated packet already accepted for RF.
+     *
+     * <p>Unlike {@link #maybeGateToAprsIs(APRSPacket, Long)}, this path does not apply RF iGate
+     * eligibility checks or add a qAO construct. It emits the locally originated payload with a
+     * {@code TCPIP*} path and records TX_APRS_IS history only after the asynchronous callback
+     * reports successful socket submission. Rejection or failure to queue the Internet copy does
+     * not affect the completed RF submission.</p>
+     */
+    private void submitLocalToAprsIs(APRSPacket packet, Long eventId) {
+        String tnc2 = localAprsIsLine(packet);
+        if (tnc2 == null) {
+            return;
+        }
+        try {
+            callbacks.submitAprsIs(tnc2, () -> {
+                try {
+                    recordAprsIsTransmission(eventId, tnc2);
+                } catch (RuntimeException ex) {
+                    LOG.log(Level.WARNING, "Unable to record successful local APRS-IS submission", ex);
+                }
+            });
+        } catch (RuntimeException ex) {
+            LOG.log(Level.FINE, "Unable to queue local APRS-IS submission", ex);
+        }
+    }
+
+    private String localAprsIsLine(APRSPacket packet) {
+        if (packet == null || packet.getPayload() == null) {
+            return null;
+        }
+        return packet.getSourceCall() + ">" + packet.getDestinationCall() + ",TCPIP*:"
+            + new String(packet.getPayload().getRawBytes(), StandardCharsets.ISO_8859_1);
     }
 
     private String igateLine(APRSPacket packet, int depth) {
