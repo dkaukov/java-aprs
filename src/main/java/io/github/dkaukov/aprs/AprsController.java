@@ -258,14 +258,16 @@ public final class AprsController {
 
     /**
      * Enables or disables APRS-IS submission for eligible received RF packets and locally
-     * originated {@link #postMessage(String, String, Long)} packets.
+     * originated {@link #postMessage(String, String, Long)} and
+     * {@link #submitPositionBeacon(BeaconData)} packets.
      *
      * <p>Eligible received RF packets are forwarded with the standards-filtered qAO construct.
-     * An accepted local message is independently submitted with a {@code TCPIP*} path. Disabling
-     * this setting leaves RF processing and RF message submission unchanged.</p>
+     * An accepted local message or position beacon is independently submitted with a
+     * {@code TCPIP*} path. Disabling this setting leaves RF processing and RF submission
+     * unchanged.</p>
      *
      * @param enabled {@code true} to invoke {@link Callbacks#submitAprsIs(String, Runnable)} for
-     *                eligible RF and local message packets
+     *                eligible RF, local message, and local position packets
      */
     public synchronized void setIgateEnabled(boolean enabled) {
         igateEnabled = enabled;
@@ -849,7 +851,12 @@ public final class AprsController {
      * @param rawAx25 AX.25 UI frame accepted by the transport, without FCS, flags, or KISS framing
      */
     public synchronized void recordPositionBeacon(String callsign, double latitude, double longitude, Long frequencyHz, APRSPacket packet, byte[] rawAx25) {
-        persistOutgoingEvent(outgoingPositionEvent(callsign, latitude, longitude, packet, rawAx25),
+        recordPositionBeaconNow(callsign, latitude, longitude, frequencyHz, packet, rawAx25);
+    }
+
+    private AprsEvent recordPositionBeaconNow(String callsign, double latitude, double longitude,
+                                              Long frequencyHz, APRSPacket packet, byte[] rawAx25) {
+        return persistOutgoingEvent(outgoingPositionEvent(callsign, latitude, longitude, packet, rawAx25),
             packet, frequencyHz, rawAx25);
     }
 
@@ -894,7 +901,9 @@ public final class AprsController {
      * <p>The controller uses its configured callsign and TX envelope. A {@code false} result
      * means that configuration or beacon data was invalid, or that the RF transport did not
      * accept the generated packet. A {@code true} result records a TX_RF packet and event, but
-     * does not confirm on-air transmission or remote reception.</p>
+     * does not confirm on-air transmission or remote reception. When iGating is enabled, an
+     * accepted beacon also receives a best-effort asynchronous APRS-IS submission with a
+     * {@code TCPIP*} path.</p>
      *
      * @param beacon application-supplied beacon content; latitude and longitude are required
      * @return whether the RF transport accepted and the controller recorded the beacon
@@ -913,8 +922,11 @@ public final class AprsController {
             return false;
         }
         Transmission transmission = submission.getTransmission();
-        recordPositionBeacon(callsign, beacon.getLatitude(), beacon.getLongitude(),
+        AprsEvent event = recordPositionBeaconNow(callsign, beacon.getLatitude(), beacon.getLongitude(),
             transmission.frequencyHz, transmission.packet, transmission.rawAx25);
+        if (igateEnabled) {
+            submitLocalToAprsIs(transmission.packet, event.getId());
+        }
         return true;
     }
 
