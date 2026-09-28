@@ -257,10 +257,15 @@ public final class AprsController {
     }
 
     /**
-     * Enables or disables standards-filtered, one-way forwarding from RF to APRS-IS.
+     * Enables or disables APRS-IS submission for eligible received RF packets and locally
+     * originated {@link #postMessage(String, String, Long)} packets.
+     *
+     * <p>Eligible received RF packets are forwarded with the standards-filtered qAO construct.
+     * An accepted local message is independently submitted with a {@code TCPIP*} path. Disabling
+     * this setting leaves RF processing and RF message submission unchanged.</p>
      *
      * @param enabled {@code true} to invoke {@link Callbacks#submitAprsIs(String, Runnable)} for
-     *                eligible RF packets
+     *                eligible RF and local message packets
      */
     public synchronized void setIgateEnabled(boolean enabled) {
         igateEnabled = enabled;
@@ -770,10 +775,10 @@ public final class AprsController {
      * A {@code false} result means the controller configuration or arguments were insufficient,
      * or the local transport did not accept the frame.</p>
      *
-     * <p>After an accepted RF submission, the controller also makes a best-effort asynchronous
-     * APRS-IS submission with a {@code TCPIP*} path. APRS-IS queue rejection or failure does not
-     * change this method's result; TX_APRS_IS history is recorded only after socket submission
-     * succeeds.</p>
+     * <p>When iGating is enabled, after an accepted RF submission the controller also makes a
+     * best-effort asynchronous APRS-IS submission with a {@code TCPIP*} path. APRS-IS queue
+     * rejection or failure does not change this method's result; TX_APRS_IS history is recorded
+     * only after socket submission succeeds.</p>
      *
      * @param to message destination callsign or broadcast address
      * @param text message body; it is trimmed and limited to APRS message-field capacity

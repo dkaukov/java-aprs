@@ -649,6 +649,17 @@ public class AprsControllerTest {
         assertEquals(1, f.packets.records.size());
     }
 
+    @Test public void localInternetCopyExceptionDoesNotChangePostMessageResult() {
+        Fixture f = fixture();
+        f.controller.setIgateEnabled(true);
+        f.callbacks.aprsIsThrows = true;
+
+        assertTrue(f.controller.postMessage("VK3ABC", "hello", 144_390_000L));
+
+        assertEquals(1, f.events.records.size());
+        assertEquals(1, f.packets.records.size());
+    }
+
     @Test public void rejectedPostMessageDoesNotCreateHistory() {
         Fixture f = fixture();
         f.callbacks.retrySucceeds = false;
@@ -1508,6 +1519,7 @@ public class AprsControllerTest {
         boolean cancelRetry;
         boolean digipeatSucceeds = true;
         boolean aprsIsAccepts = true;
+        boolean aprsIsThrows;
         APRSPacket lastDigipeatedPacket;
         String lastIgateLine;
         Long lastIgateEventId;
@@ -1576,6 +1588,9 @@ public class AprsControllerTest {
         }
 
         @Override public boolean submitAprsIs(String tnc2, Runnable onSuccess) {
+            if (aprsIsThrows) {
+                throw new IllegalStateException("simulated APRS-IS queue failure");
+            }
             if (onGetCallsign != null) {
                 Runnable action = onGetCallsign;
                 onGetCallsign = null;
