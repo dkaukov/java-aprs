@@ -607,6 +607,48 @@ public class AprsControllerTest {
             f.callbacks.lastTransmissionPurpose);
     }
 
+    @Test public void postMessageBestEffortSubmitsLocalInternetCopyWithTcpip() {
+        Fixture f = fixture();
+        f.controller.setIgateEnabled(true);
+
+        assertTrue(f.controller.postMessage("VK3ABC", "hello", 144_390_000L));
+
+        String payload = new String(f.callbacks.lastTransmission.getPacket().getPayload().getRawBytes(),
+            StandardCharsets.ISO_8859_1);
+        assertEquals(1, f.callbacks.igateCount);
+        assertEquals("VK3ME>APRS,TCPIP*:" + payload, f.callbacks.lastIgateLine);
+        assertEquals(1, f.packets.records.size());
+
+        f.callbacks.lastIgateSuccess.run();
+        assertEquals(2, f.packets.records.size());
+        AprsPacket internetCopy = f.packets.records.get(1);
+        assertEquals(AprsSource.TX_APRS_IS, internetCopy.getSource());
+        assertEquals(f.callbacks.lastIgateLine, internetCopy.getRawTnc2());
+        assertEquals(Long.valueOf(f.events.records.get(0).getId()), internetCopy.getEventId());
+    }
+
+    @Test public void postMessageSkipsLocalInternetCopyWhenIgateIsDisabled() {
+        Fixture f = fixture();
+
+        assertTrue(f.controller.postMessage("VK3ABC", "hello", 144_390_000L));
+
+        assertEquals(0, f.callbacks.igateCount);
+        assertEquals(1, f.events.records.size());
+        assertEquals(1, f.packets.records.size());
+    }
+
+    @Test public void rejectedLocalInternetCopyDoesNotChangePostMessageResult() {
+        Fixture f = fixture();
+        f.controller.setIgateEnabled(true);
+        f.callbacks.aprsIsAccepts = false;
+
+        assertTrue(f.controller.postMessage("VK3ABC", "hello", 144_390_000L));
+
+        assertEquals(1, f.callbacks.igateCount);
+        assertEquals(1, f.events.records.size());
+        assertEquals(1, f.packets.records.size());
+    }
+
     @Test public void rejectedPostMessageDoesNotCreateHistory() {
         Fixture f = fixture();
         f.callbacks.retrySucceeds = false;
@@ -1465,6 +1507,7 @@ public class AprsControllerTest {
         boolean retrySucceeds = true;
         boolean cancelRetry;
         boolean digipeatSucceeds = true;
+        boolean aprsIsAccepts = true;
         APRSPacket lastDigipeatedPacket;
         String lastIgateLine;
         Long lastIgateEventId;
@@ -1541,7 +1584,7 @@ public class AprsControllerTest {
             igateCount++;
             lastIgateLine = tnc2;
             lastIgateSuccess = onSuccess;
-            return true;
+            return aprsIsAccepts;
         }
     }
 }

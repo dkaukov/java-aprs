@@ -213,6 +213,9 @@ retuning for an ACK or beacon while declining a retry or digipeated packet on a 
 Use `postMessage(to, text, frequencyHz)` for controller-owned initial messages. Direct messages
 are submitted as `OUTGOING_MESSAGE` and receive a generated APRS message identifier; CQ, BLN*,
 QST, and ALL messages are submitted as `BROADCAST` without retries.
+When iGating is enabled, accepted RF submission from `postMessage(...)` also queues a best-effort
+APRS-IS copy with a `TCPIP*` path. This is independent of the RF-to-APRS-IS iGate path, which
+continues to use qAO; APRS-IS rejection does not change the RF result.
 Return an `AprsController.RfTransmission` containing a `Transmission` only when the local TNC/radio accepted
 the packet. Without a transmission, `retryAllowed=false` cancels a reliable-message retry;
 otherwise it remains scheduled. A successful result is not RF delivery; matching APRS ACK

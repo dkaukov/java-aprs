@@ -135,6 +135,12 @@ controller.postMessage("CQ", "Listening on 144.390", 144_390_000L);
 `recordOutgoingMessage(...)` remains available when an application has already submitted a custom
 message frame itself.
 
+With iGating enabled, after RF transport accepts a `postMessage(...)` frame the controller also
+makes a best-effort APRS-IS submission with a `TCPIP*` path. This is separate from RF iGating:
+received RF packets continue to use the standards-filtered `qAO` path. APRS-IS queue rejection
+does not change the successful RF result, and TX_APRS_IS history is added only after the APRS-IS
+client reports a successful socket write.
+
 `submitAprsIs(line, onSuccess)` must invoke `onSuccess` only after successful socket submission
 so the controller can record TX_APRS_IS history.
 
